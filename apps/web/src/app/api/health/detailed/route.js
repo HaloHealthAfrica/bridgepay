@@ -63,7 +63,7 @@ export const GET = withErrorHandling(async (request) => {
 
   // Check Redis
   try {
-    const { connection } = await import("../../../../lib/queue/redis.js");
+    const { connection } = await import("@apps-lib/queue/redis.js");
     const startTime = Date.now();
     await connection.ping();
     const redisTime = Date.now() - startTime;
@@ -127,7 +127,7 @@ export const GET = withErrorHandling(async (request) => {
 
   // Check cache
   try {
-    const { getStats } = await import("../../../../lib/cache/redis.js");
+    const { getStats } = await import("@apps-lib/cache/redis.js");
     const cacheStats = await getStats();
     health.checks.cache = {
       status: "healthy",

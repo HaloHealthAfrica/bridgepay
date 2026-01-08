@@ -1,42 +1,8 @@
 {
-  "buildCommand": "cd apps/web && npm install && npm run build",
-  "outputDirectory": "apps/web/build/client",
-  "installCommand": "cd apps/web && npm install",
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "installCommand": "cd frontend && npm install",
+  "outputDirectory": "frontend/dist",
   "framework": null,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api/server"
-    }
-  ],
-  "functions": {
-    "apps/web/api/server.js": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 30,
-      "includeFiles": "apps/web/build/**"
-    }
-  },
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization"
-        }
-      ]
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
 

@@ -3,7 +3,11 @@
  * Handles sending emails via Resend
  */
 
-import { Resend } from 'resend';
+import { createRequire } from 'node:module';
+
+// `resend` is CommonJS; load via require for ESM SSR compatibility.
+const require = createRequire(import.meta.url);
+const { Resend } = require('resend');
 
 // Initialize Resend client
 let resendClient = null;

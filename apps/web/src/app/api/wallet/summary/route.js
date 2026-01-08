@@ -5,7 +5,7 @@ import {
   withErrorHandling,
   errorResponse,
 } from "@/app/api/utils/errorHandler";
-import { getCachedWalletData } from "../../../../lib/cache/walletCache";
+import { getCachedWalletData } from "@apps-lib/cache/walletCache.js";
 import { ensureAuthenticated } from "@/app/api/middleware/roleGuard";
 import { normalizeCurrency, DEFAULT_CURRENCY, SUPPORTED_CURRENCIES, isValidCurrency } from "@/app/api/utils/currencies";
 
@@ -41,7 +41,7 @@ export const GET = withErrorHandling(async (request) => {
     const wallet = await getOrCreateWallet(userId, currency);
     
     // Get pending transactions
-    const { getCachedPending } = await import("../../../../lib/cache/walletCache");
+    const { getCachedPending } = await import("@apps-lib/cache/walletCache.js");
     const pendingData = await getCachedPending(wallet.id);
     
     walletData = {

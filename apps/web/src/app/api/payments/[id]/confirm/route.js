@@ -5,8 +5,22 @@ import {
   getOrCreateWallet,
   postLedgerAndUpdateBalance,
   nowRef,
-} from "@/app/api/wallet/_helpers";
+} from "@/app/api/wallet/_helpers_secure";
 import { calculateFees } from "@/app/api/billing/_helpers"; // NEW: pre-calc fees
+import { 
+  logSecurityEvent, 
+  SECURITY_EVENTS, 
+  THREAT_LEVELS 
+} from "@/app/api/utils/securityMonitor";
+import { 
+  rateLimitMiddleware, 
+  RATE_LIMITS, 
+  generateUserKey 
+} from "@/app/api/utils/rateLimiter";
+import { 
+  validateUserId,
+  validatePaymentAmount 
+} from "@/app/api/utils/validators";
 
 function bad(status, error, extra = {}) {
   return Response.json({ ok: false, error, ...extra }, { status });
@@ -34,14 +48,70 @@ function mapExtType(idOrType) {
 
 export async function POST(request, { params }) {
   const { id } = params || {};
+  const ip = request.headers.get('x-forwarded-for') || 
+            request.headers.get('x-real-ip') || 
+            'unknown';
+  const userAgent = request.headers.get('user-agent') || 'unknown';
+
   try {
     const session = await auth();
-    if (!session?.user?.id) return bad(401, "unauthorized");
+    if (!session?.user?.id) {
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        ip,
+        userAgent,
+        endpoint: `/api/payments/${id}/confirm`,
+        threatLevel: THREAT_LEVELS.HIGH,
+        metadata: { reason: 'missing_authentication', paymentId: id }
+      });
+      return bad(401, "unauthorized");
+    }
+
+    // Validate user ID
+    const userIdValidation = validateUserId(session.user.id);
+    if (!userIdValidation.valid) {
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: `/api/payments/${id}/confirm`,
+        threatLevel: THREAT_LEVELS.HIGH,
+        metadata: { reason: 'invalid_user_id', error: userIdValidation.error, paymentId: id }
+      });
+      return bad(400, "invalid_user_id");
+    }
+
+    // Rate limiting for payment confirmation
+    const rateLimitKey = generateUserKey(session.user.id, 'payment_confirm');
+    const rateLimit = await rateLimitMiddleware(RATE_LIMITS.PAYMENT_INTENT)(request, { userId: session.user.id });
+    
+    if (rateLimit.blocked) {
+      await logSecurityEvent(SECURITY_EVENTS.RATE_LIMIT_EXCEEDED, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: `/api/payments/${id}/confirm`,
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { paymentId: id }
+      });
+      return Response.json(
+        { ok: false, error: 'rate_limit_exceeded' },
+        { status: 429, headers: rateLimit.headers }
+      );
+    }
 
     let body = {};
     try {
       body = await request.json();
-    } catch {}
+    } catch {
+      await logSecurityEvent(SECURITY_EVENTS.SUSPICIOUS_LOGIN, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: `/api/payments/${id}/confirm`,
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { reason: 'malformed_json', paymentId: id }
+      });
+    }
 
     const idempo = request.headers.get("Idempotency-Key") || null;
 
@@ -51,10 +121,64 @@ export async function POST(request, { params }) {
       [id],
     );
     const intent = rows?.[0];
-    if (!intent) return bad(404, "not_found");
-    if (intent.user_id !== session.user.id) return bad(403, "forbidden");
-    if (intent.status !== "PENDING")
+    if (!intent) {
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: `/api/payments/${id}/confirm`,
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { reason: 'payment_not_found', paymentId: id }
+      });
+      return bad(404, "not_found");
+    }
+    
+    if (intent.user_id !== session.user.id) {
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: `/api/payments/${id}/confirm`,
+        threatLevel: THREAT_LEVELS.HIGH,
+        metadata: { 
+          reason: 'payment_access_denied', 
+          paymentId: id,
+          paymentOwnerId: intent.user_id
+        }
+      });
+      return bad(403, "forbidden");
+    }
+    
+    if (intent.status !== "PENDING") {
+      await logSecurityEvent(SECURITY_EVENTS.SUSPICIOUS_LOGIN, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: `/api/payments/${id}/confirm`,
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { 
+          reason: 'invalid_payment_status', 
+          paymentId: id,
+          currentStatus: intent.status
+        }
+      });
       return bad(400, "invalid_status", { status: intent.status });
+    }
+
+    // Log payment confirmation attempt
+    await logSecurityEvent(SECURITY_EVENTS.LARGE_TRANSACTION, {
+      userId: session.user.id,
+      ip,
+      userAgent,
+      endpoint: `/api/payments/${id}/confirm`,
+      threatLevel: THREAT_LEVELS.LOW,
+      metadata: { 
+        operation: 'payment_confirm',
+        paymentId: id,
+        amount: intent.amount_due,
+        currency: intent.currency
+      }
+    });
 
     // Allow client to override fundingPlan on confirm if provided (must match amount)
     const plan =
@@ -241,7 +365,7 @@ export async function POST(request, { params }) {
     try {
       const metadata = intent.metadata || {};
       if (metadata.project_id) {
-        const { updateProjectOnPayment } = await import("../../../../lib/projects/updateProjectOnPayment.js");
+        const { updateProjectOnPayment } = await import("@apps-lib/projects/updateProjectOnPayment.js");
         // Payment is confirmed, so status is 'completed'
         await updateProjectOnPayment(id, "completed");
       }
@@ -257,6 +381,19 @@ export async function POST(request, { params }) {
       external: externalStarts,
     });
   } catch (e) {
+    await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+      userId: session?.user?.id,
+      ip,
+      userAgent,
+      endpoint: `/api/payments/${id}/confirm`,
+      threatLevel: THREAT_LEVELS.HIGH,
+      metadata: { 
+        error: e.message,
+        reason: 'server_error',
+        paymentId: id
+      }
+    });
+
     console.error(`/api/payments/${id}/confirm POST error`, e);
     return bad(500, "server_error");
   }

@@ -1,0 +1,1186 @@
+openapi: 3.0.3
+info:
+  title: 'Lemonade-Staging API Documentation'
+  description: ''
+  version: 1.0.0
+servers:
+  -
+    url: 'https://lemonade.test'
+tags:
+  -
+    name: Authentication
+    description: ''
+  -
+    name: 'Account Services'
+    description: ''
+  -
+    name: 'Payment APIs'
+    description: ''
+components:
+  securitySchemes:
+    default:
+      type: http
+      scheme: bearer
+      description: 'You can retrieve your authentication token by contacting support or through your dashboard. Include the token in the Authorization header as a Bearer token for all authenticated requests.'
+security:
+  -
+    default: []
+paths:
+  /api/v2/auth/login:
+    post:
+      summary: 'User Login'
+      operationId: userLogin
+      description: 'Authenticate using your API consumer key and secret to receive a JWT token for API access.'
+      parameters: []
+      responses:
+        200:
+          description: 'Successful login'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: success
+                  data:
+                    access_token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+                    token_type: bearer
+                    expires_in: 3600
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                        example: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+                      token_type:
+                        type: string
+                        example: bearer
+                      expires_in:
+                        type: integer
+                        example: 3600
+        401:
+          description: 'Invalid credentials'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'Invalid username or password. Please try again.'
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'Invalid username or password. Please try again.'
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consumer_key:
+                  type: string
+                  description: 'API consumer key.'
+                  example: ck_1234567890abcdef
+                  nullable: false
+                consumer_secret:
+                  type: string
+                  description: 'API consumer secret.'
+                  example: cs_0987654321fedcba
+                  nullable: false
+              required:
+                - consumer_key
+                - consumer_secret
+      security: []
+  '/api/v2/wallet/{wallet_no}':
+    get:
+      summary: 'Get Account Information'
+      operationId: getAccountInformation
+      description: 'Retrieve detailed information about a wallet account including balance, currency, status, and account details.'
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: success
+                  message: Success
+                  data:
+                    uuid: 550e8400-e29b-41d4-a716-446655440000
+                    wallet_no: LMND123456
+                    balance: '50000.00'
+                    currency: KES
+                    status: active
+                    account_name: 'John Doe'
+                    created_at: '2024-01-15T10:30:00Z'
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Success
+                  data:
+                    type: object
+                    properties:
+                      uuid:
+                        type: string
+                        example: 550e8400-e29b-41d4-a716-446655440000
+                      wallet_no:
+                        type: string
+                        example: LMND123456
+                      balance:
+                        type: string
+                        example: '50000.00'
+                      currency:
+                        type: string
+                        example: KES
+                      status:
+                        type: string
+                        example: active
+                      account_name:
+                        type: string
+                        example: 'John Doe'
+                      created_at:
+                        type: string
+                        example: '2024-01-15T10:30:00Z'
+        401:
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: Unauthenticated
+                  error_code: 401
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: Unauthenticated
+                  error_code:
+                    type: integer
+                    example: 401
+        404:
+          description: 'Wallet not found'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'Wallet not found.'
+                  error_code: 404
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'Wallet not found.'
+                  error_code:
+                    type: integer
+                    example: 404
+      tags:
+        - 'Account Services'
+    parameters:
+      -
+        in: path
+        name: wallet_no
+        description: 'The wallet account number.'
+        example: LMND123456
+        required: true
+        schema:
+          type: string
+  '/api/v2/wallet/balance/{wallet_no}':
+    get:
+      summary: 'Check Account Balance'
+      operationId: checkAccountBalance
+      description: 'Retrieve the current balance and account information for a specific wallet.'
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: success
+                  message: Success
+                  data:
+                    uuid: 550e8400-e29b-41d4-a716-446655440000
+                    wallet_no: LMND789012
+                    balance: '125000.50'
+                    available_balance: '125000.50'
+                    currency: KES
+                    status: active
+                    account_name: 'Jane Smith Business'
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Success
+                  data:
+                    type: object
+                    properties:
+                      uuid:
+                        type: string
+                        example: 550e8400-e29b-41d4-a716-446655440000
+                      wallet_no:
+                        type: string
+                        example: LMND789012
+                      balance:
+                        type: string
+                        example: '125000.50'
+                      available_balance:
+                        type: string
+                        example: '125000.50'
+                      currency:
+                        type: string
+                        example: KES
+                      status:
+                        type: string
+                        example: active
+                      account_name:
+                        type: string
+                        example: 'Jane Smith Business'
+        403:
+          description: 'Unauthorized access'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'You are not authorized to view this wallet.'
+                  error_code: 403
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'You are not authorized to view this wallet.'
+                  error_code:
+                    type: integer
+                    example: 403
+        404:
+          description: 'Wallet not found'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'Wallet not found.'
+                  error_code: 404
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'Wallet not found.'
+                  error_code:
+                    type: integer
+                    example: 404
+      tags:
+        - 'Account Services'
+    parameters:
+      -
+        in: path
+        name: wallet_no
+        description: 'The wallet account number.'
+        example: LMND789012
+        required: true
+        schema:
+          type: string
+  /api/v2/wallet/statement:
+    post:
+      summary: 'Get Full Statement'
+      operationId: getFullStatement
+      description: 'Retrieve a detailed transaction statement for a wallet account within a specified date range.'
+      parameters: []
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: success
+                  message: 'Successfully fetched'
+                  data:
+                    -
+                      id: 550e8400-e29b-41d4-a716-446655440001
+                      transaction_id: TXN123456789
+                      type: credit
+                      amount: '5000.00'
+                      balance_before: '45000.00'
+                      balance_after: '50000.00'
+                      description: 'Payment received from Customer A'
+                      status: completed
+                      created_at: '2024-01-15T10:30:00Z'
+                      payment_method: M-Pesa
+                    -
+                      id: 550e8400-e29b-41d4-a716-446655440002
+                      transaction_id: TXN123456790
+                      type: debit
+                      amount: '2000.00'
+                      balance_before: '50000.00'
+                      balance_after: '48000.00'
+                      description: 'Transfer to Supplier B'
+                      status: completed
+                      created_at: '2024-01-16T14:20:00Z'
+                      payment_method: PesaLink
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: 'Successfully fetched'
+                  data:
+                    type: array
+                    example:
+                      -
+                        id: 550e8400-e29b-41d4-a716-446655440001
+                        transaction_id: TXN123456789
+                        type: credit
+                        amount: '5000.00'
+                        balance_before: '45000.00'
+                        balance_after: '50000.00'
+                        description: 'Payment received from Customer A'
+                        status: completed
+                        created_at: '2024-01-15T10:30:00Z'
+                        payment_method: M-Pesa
+                      -
+                        id: 550e8400-e29b-41d4-a716-446655440002
+                        transaction_id: TXN123456790
+                        type: debit
+                        amount: '2000.00'
+                        balance_before: '50000.00'
+                        balance_after: '48000.00'
+                        description: 'Transfer to Supplier B'
+                        status: completed
+                        created_at: '2024-01-16T14:20:00Z'
+                        payment_method: PesaLink
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          example: 550e8400-e29b-41d4-a716-446655440001
+                        transaction_id:
+                          type: string
+                          example: TXN123456789
+                        type:
+                          type: string
+                          example: credit
+                        amount:
+                          type: string
+                          example: '5000.00'
+                        balance_before:
+                          type: string
+                          example: '45000.00'
+                        balance_after:
+                          type: string
+                          example: '50000.00'
+                        description:
+                          type: string
+                          example: 'Payment received from Customer A'
+                        status:
+                          type: string
+                          example: completed
+                        created_at:
+                          type: string
+                          example: '2024-01-15T10:30:00Z'
+                        payment_method:
+                          type: string
+                          example: M-Pesa
+        400:
+          description: 'Invalid date range'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'Invalid date format. Please use YYYY-MM-DD.'
+                  error_code: 400
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'Invalid date format. Please use YYYY-MM-DD.'
+                  error_code:
+                    type: integer
+                    example: 400
+        404:
+          description: 'Wallet not found'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'Wallet not found.'
+                  error_code: 404
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'Wallet not found.'
+                  error_code:
+                    type: integer
+                    example: 404
+      tags:
+        - 'Account Services'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                acc_no:
+                  type: string
+                  description: 'The wallet account number.'
+                  example: LMND123456
+                  nullable: false
+                from_date:
+                  type: string
+                  description: 'Start date for the statement (YYYY-MM-DD).'
+                  example: '2024-01-01'
+                  nullable: false
+                end_date:
+                  type: string
+                  description: 'End date for the statement (YYYY-MM-DD).'
+                  example: '2024-01-31'
+                  nullable: false
+                limit:
+                  type: integer
+                  description: 'optional Maximum number of transactions to return. Defaults to 100.'
+                  example: 50
+                  nullable: false
+              required:
+                - acc_no
+                - from_date
+                - end_date
+  /api/v2/payment:
+    post:
+      summary: 'Initiate Payment Transaction (Send or Receive Money)'
+      operationId: initiatePaymentTransactionSendOrReceiveMoney
+      description: "This unified endpoint handles both receiving money from customers (C2B) and sending money to recipients (B2C/B2B).\nThe payment direction is automatically determined by the channel code you provide.\n\n## Available Channel Codes\n\n**Receive Money (C2B) Channels:**\n- `100001` - M-Pesa STK Push (Customer to Business)\n- `100000` - M-Pesa C2B (Till Number)\n- `222222` - Lemonade STK Push\n- `200001` - Airtel Money\n- `300001` - T-Kash\n- `400001` - Card Payments\n\n**Send Money (B2C/B2B) Channels:**\n- `100002` - M-Pesa B2C (Business to Customer)\n- `100004` - PesaLink (Bank Transfer)\n- `100007` - M-Pesa B2B Till\n- `100008` - M-Pesa B2B Paybill\n- `111111` - Wallet to Wallet\n- `100011` - Lemonade B2C\n\n## Channel-Specific Requirements\n- **M-Pesa STK Push (100001)**: Sends a push notification to the customer's phone\n- **PesaLink (100004)**: Requires `bank_code` and bank account number\n- **M-Pesa Paybill (100008)**: Requires `acc_ref` (account reference)\n- **Wallet to Wallet (111111)**: Instant wallet transfer\n- **Card Payments (400001)**: Returns a `redirect_url` for card payment completion on secure payment page"
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    description: 'M-Pesa STK Push Success (C2B)'
+                    type: object
+                    example:
+                      status: success
+                      message: 'Successfully initiated'
+                      data:
+                        transaction_id: TXN1234567890
+                        internal_id: INT9876543210
+                        amount: '1000.00'
+                        currency: KES
+                        status: pending
+                        payment_method:
+                          code: '100001'
+                          name: 'M-Pesa STK Push'
+                          type: MOBILE
+                        charges: '15.00'
+                        total_amount: '1015.00'
+                        description: 'M-Pesa payment request sent to 254712345678'
+                        created_at: '2024-01-15T10:30:00Z'
+                    properties:
+                      status:
+                        type: string
+                        example: success
+                      message:
+                        type: string
+                        example: 'Successfully initiated'
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            example: TXN1234567890
+                          internal_id:
+                            type: string
+                            example: INT9876543210
+                          amount:
+                            type: string
+                            example: '1000.00'
+                          currency:
+                            type: string
+                            example: KES
+                          status:
+                            type: string
+                            example: pending
+                          payment_method:
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                                example: '100001'
+                              name:
+                                type: string
+                                example: 'M-Pesa STK Push'
+                              type:
+                                type: string
+                                example: MOBILE
+                          charges:
+                            type: string
+                            example: '15.00'
+                          total_amount:
+                            type: string
+                            example: '1015.00'
+                          description:
+                            type: string
+                            example: 'M-Pesa payment request sent to 254712345678'
+                          created_at:
+                            type: string
+                            example: '2024-01-15T10:30:00Z'
+                  -
+                    description: 'PesaLink Transfer Success (B2C)'
+                    type: object
+                    example:
+                      status: success
+                      message: 'Successfully initiated'
+                      data:
+                        transaction_id: TXN2345678901
+                        internal_id: INT8765432109
+                        amount: '5000.00'
+                        currency: KES
+                        status: processing
+                        payment_method:
+                          code: '100004'
+                          name: PesaLink
+                          type: BANK
+                        recipient:
+                          name: 'Jane Smith'
+                          account: '1234567890'
+                          bank: 'Equity Bank'
+                        charges: '50.00'
+                        total_amount: '5050.00'
+                        created_at: '2024-01-15T10:35:00Z'
+                    properties:
+                      status:
+                        type: string
+                        example: success
+                      message:
+                        type: string
+                        example: 'Successfully initiated'
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            example: TXN2345678901
+                          internal_id:
+                            type: string
+                            example: INT8765432109
+                          amount:
+                            type: string
+                            example: '5000.00'
+                          currency:
+                            type: string
+                            example: KES
+                          status:
+                            type: string
+                            example: processing
+                          payment_method:
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                                example: '100004'
+                              name:
+                                type: string
+                                example: PesaLink
+                              type:
+                                type: string
+                                example: BANK
+                          recipient:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                example: 'Jane Smith'
+                              account:
+                                type: string
+                                example: '1234567890'
+                              bank:
+                                type: string
+                                example: 'Equity Bank'
+                          charges:
+                            type: string
+                            example: '50.00'
+                          total_amount:
+                            type: string
+                            example: '5050.00'
+                          created_at:
+                            type: string
+                            example: '2024-01-15T10:35:00Z'
+                  -
+                    description: 'Wallet to Wallet Transfer Success'
+                    type: object
+                    example:
+                      status: success
+                      message: 'Successfully initiated'
+                      data:
+                        transaction_id: TXN3456789012
+                        internal_id: INT7654321098
+                        amount: '2500.00'
+                        currency: KES
+                        status: completed
+                        payment_method:
+                          code: '111111'
+                          name: 'Wallet to Wallet'
+                          type: WALLET
+                        recipient_wallet: LMND789012
+                        charges: '0.00'
+                        created_at: '2024-01-15T10:40:00Z'
+                    properties:
+                      status:
+                        type: string
+                        example: success
+                      message:
+                        type: string
+                        example: 'Successfully initiated'
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            example: TXN3456789012
+                          internal_id:
+                            type: string
+                            example: INT7654321098
+                          amount:
+                            type: string
+                            example: '2500.00'
+                          currency:
+                            type: string
+                            example: KES
+                          status:
+                            type: string
+                            example: completed
+                          payment_method:
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                                example: '111111'
+                              name:
+                                type: string
+                                example: 'Wallet to Wallet'
+                              type:
+                                type: string
+                                example: WALLET
+                          recipient_wallet:
+                            type: string
+                            example: LMND789012
+                          charges:
+                            type: string
+                            example: '0.00'
+                          created_at:
+                            type: string
+                            example: '2024-01-15T10:40:00Z'
+                  -
+                    description: 'Card Payment (C2B)'
+                    type: object
+                    example:
+                      status: success
+                      message: 'Successfully initiated'
+                      data:
+                        transaction_id: TXN4567890123
+                        amount: '3000.00'
+                        status: pending
+                        redirect_url: 'https://secure.dpkenya.com/payment/ABC123XYZ'
+                        payment_instructions: 'Please complete the payment by visiting the redirect_url to enter card details on the secure payment page.'
+                        description: 'Card payment via DP Kenya'
+                        created_at: '2024-01-15T10:45:00Z'
+                    properties:
+                      status:
+                        type: string
+                        example: success
+                      message:
+                        type: string
+                        example: 'Successfully initiated'
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            example: TXN4567890123
+                          amount:
+                            type: string
+                            example: '3000.00'
+                          status:
+                            type: string
+                            example: pending
+                          redirect_url:
+                            type: string
+                            example: 'https://secure.dpkenya.com/payment/ABC123XYZ'
+                          payment_instructions:
+                            type: string
+                            example: 'Please complete the payment by visiting the redirect_url to enter card details on the secure payment page.'
+                          description:
+                            type: string
+                            example: 'Card payment via DP Kenya'
+                          created_at:
+                            type: string
+                            example: '2024-01-15T10:45:00Z'
+        400:
+          description: 'Insufficient Balance'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'Insufficient balance in wallet'
+                  error_code: 400
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'Insufficient balance in wallet'
+                  error_code:
+                    type: integer
+                    example: 400
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    description: 'Wallet Not Found'
+                    type: object
+                    example:
+                      status: error
+                      message: 'Wallet account number not found.'
+                      error_code: 404
+                    properties:
+                      status:
+                        type: string
+                        example: error
+                      message:
+                        type: string
+                        example: 'Wallet account number not found.'
+                      error_code:
+                        type: integer
+                        example: 404
+                  -
+                    description: 'Duplicate Reference'
+                    type: object
+                    example:
+                      status: error
+                      message: 'Reference REF123456 already exists.'
+                      error_code: 404
+                    properties:
+                      status:
+                        type: string
+                        example: error
+                      message:
+                        type: string
+                        example: 'Reference REF123456 already exists.'
+                      error_code:
+                        type: integer
+                        example: 404
+      tags:
+        - 'Payment APIs'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                wallet_no:
+                  type: string
+                  description: 'Your wallet account number.'
+                  example: LMND123456
+                  nullable: false
+                reference:
+                  type: string
+                  description: 'Your unique transaction reference.'
+                  example: REF123456
+                  nullable: false
+                acc_name:
+                  type: string
+                  description: 'Recipient/Sender account name.'
+                  example: 'John Doe'
+                  nullable: false
+                acc_no:
+                  type: string
+                  description: 'Recipient/Sender account number or phone number.'
+                  example: '254712345678'
+                  nullable: false
+                amount:
+                  type: number
+                  description: 'Transaction amount.'
+                  example: 1000.0
+                  nullable: false
+                currency:
+                  type: string
+                  description: 'Currency code (KES, USD, etc.).'
+                  example: KES
+                  nullable: false
+                channel:
+                  type: string
+                  description: 'Payment method channel code. Use one of the codes listed above.'
+                  example: '100001'
+                  nullable: false
+                description:
+                  type: string
+                  description: 'Transaction description.'
+                  example: 'Payment for services'
+                  nullable: false
+                bank_code:
+                  type: string
+                  description: 'optional Bank code (required for bank transfers).'
+                  example: '01'
+                  nullable: false
+                result_url:
+                  type: string
+                  description: 'optional Callback URL for transaction status.'
+                  example: 'https://yourdomain.com/callback'
+                  nullable: true
+                is_scheduled:
+                  type: boolean
+                  description: 'optional Schedule payment for later. Defaults to false.'
+                  example: false
+                  nullable: false
+                acc_ref:
+                  type: string
+                  description: 'optional Account reference (required for paybills).'
+                  example: INV001
+                  nullable: false
+                is_private:
+                  type: boolean
+                  description: 'optional Whether to use private pricing. Defaults to false.'
+                  example: false
+                  nullable: false
+                is_mobile:
+                  type: boolean
+                  description: ''
+                  example: true
+                  nullable: false
+                start_date:
+                  type: string
+                  description: 'optional Start date for scheduled payment (YYYY-MM-DD).'
+                  example: '2024-02-01'
+                  nullable: false
+                end_date:
+                  type: string
+                  description: 'optional End date for scheduled payment (YYYY-MM-DD).'
+                  example: '2024-12-31'
+                  nullable: false
+                frequency:
+                  type: string
+                  description: 'optional Frequency for scheduled payments (daily, weekly, monthly).'
+                  example: monthly
+                  nullable: false
+                notify_phone:
+                  type: string
+                  description: 'optional Phone number for transaction notifications.'
+                  example: '254712345678'
+                  nullable: false
+                email:
+                  type: string
+                  description: 'optional Email for transaction receipt.'
+                  example: john@example.com
+                  nullable: false
+                category_id:
+                  type: string
+                  description: 'optional Transaction category UUID.'
+                  example: 550e8400-e29b-41d4-a716-446655440000
+                  nullable: false
+              required:
+                - wallet_no
+                - reference
+                - acc_name
+                - acc_no
+                - amount
+                - currency
+                - channel
+                - description
+  /api/v2/payment/status-query:
+    post:
+      summary: 'Query Transaction Status'
+      operationId: queryTransactionStatus
+      description: 'Check the current status of a payment transaction using the transaction ID.'
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    description: 'Transaction Found - Completed'
+                    type: object
+                    example:
+                      status: success
+                      message: 'Successfully fetched'
+                      data:
+                        transaction_id: TXN1234567890
+                        internal_id: INT9876543210
+                        amount: '1000.00'
+                        currency: KES
+                        status: completed
+                        payment_method:
+                          code: '100001'
+                          name: 'M-Pesa STK Push'
+                        charges: '15.00'
+                        description: 'Payment for services'
+                        external_reference: REF123456
+                        gateway_reference: QAB7C8D9E0
+                        completed_at: '2024-01-15T10:32:00Z'
+                        created_at: '2024-01-15T10:30:00Z'
+                    properties:
+                      status:
+                        type: string
+                        example: success
+                      message:
+                        type: string
+                        example: 'Successfully fetched'
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            example: TXN1234567890
+                          internal_id:
+                            type: string
+                            example: INT9876543210
+                          amount:
+                            type: string
+                            example: '1000.00'
+                          currency:
+                            type: string
+                            example: KES
+                          status:
+                            type: string
+                            example: completed
+                          payment_method:
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                                example: '100001'
+                              name:
+                                type: string
+                                example: 'M-Pesa STK Push'
+                          charges:
+                            type: string
+                            example: '15.00'
+                          description:
+                            type: string
+                            example: 'Payment for services'
+                          external_reference:
+                            type: string
+                            example: REF123456
+                          gateway_reference:
+                            type: string
+                            example: QAB7C8D9E0
+                          completed_at:
+                            type: string
+                            example: '2024-01-15T10:32:00Z'
+                          created_at:
+                            type: string
+                            example: '2024-01-15T10:30:00Z'
+                  -
+                    description: 'Transaction Found - Pending'
+                    type: object
+                    example:
+                      status: success
+                      message: 'Successfully fetched'
+                      data:
+                        transaction_id: TXN1234567891
+                        internal_id: INT9876543211
+                        amount: '5000.00'
+                        currency: KES
+                        status: pending
+                        payment_method:
+                          code: '100002'
+                          name: 'M-Pesa B2C'
+                        charges: '25.00'
+                        description: 'Salary payment'
+                        created_at: '2024-01-15T10:35:00Z'
+                    properties:
+                      status:
+                        type: string
+                        example: success
+                      message:
+                        type: string
+                        example: 'Successfully fetched'
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            example: TXN1234567891
+                          internal_id:
+                            type: string
+                            example: INT9876543211
+                          amount:
+                            type: string
+                            example: '5000.00'
+                          currency:
+                            type: string
+                            example: KES
+                          status:
+                            type: string
+                            example: pending
+                          payment_method:
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                                example: '100002'
+                              name:
+                                type: string
+                                example: 'M-Pesa B2C'
+                          charges:
+                            type: string
+                            example: '25.00'
+                          description:
+                            type: string
+                            example: 'Salary payment'
+                          created_at:
+                            type: string
+                            example: '2024-01-15T10:35:00Z'
+                  -
+                    description: 'Transaction Found - Failed'
+                    type: object
+                    example:
+                      status: success
+                      message: 'Successfully fetched'
+                      data:
+                        transaction_id: TXN1234567892
+                        internal_id: INT9876543212
+                        amount: '2000.00'
+                        currency: KES
+                        status: failed
+                        payment_method:
+                          code: '100001'
+                          name: 'M-Pesa STK Push'
+                        failure_reason: 'Customer cancelled transaction'
+                        created_at: '2024-01-15T10:40:00Z'
+                        failed_at: '2024-01-15T10:42:00Z'
+                    properties:
+                      status:
+                        type: string
+                        example: success
+                      message:
+                        type: string
+                        example: 'Successfully fetched'
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            example: TXN1234567892
+                          internal_id:
+                            type: string
+                            example: INT9876543212
+                          amount:
+                            type: string
+                            example: '2000.00'
+                          currency:
+                            type: string
+                            example: KES
+                          status:
+                            type: string
+                            example: failed
+                          payment_method:
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                                example: '100001'
+                              name:
+                                type: string
+                                example: 'M-Pesa STK Push'
+                          failure_reason:
+                            type: string
+                            example: 'Customer cancelled transaction'
+                          created_at:
+                            type: string
+                            example: '2024-01-15T10:40:00Z'
+                          failed_at:
+                            type: string
+                            example: '2024-01-15T10:42:00Z'
+        404:
+          description: 'Transaction Not Found'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  message: 'Transaction not found.'
+                  error_code: 404
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: 'Transaction not found.'
+                  error_code:
+                    type: integer
+                    example: 404
+      tags:
+        - 'Payment APIs'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transaction_id:
+                  type: string
+                  description: 'The internal transaction ID returned when payment was initiated.'
+                  example: INT9876543210
+                  nullable: false
+              required:
+                - transaction_id

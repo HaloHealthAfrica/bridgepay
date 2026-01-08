@@ -7,16 +7,16 @@
  * Get payment queue (lazy load to avoid circular dependencies)
  */
 export async function getPaymentQueue() {
-  const { paymentQueue, queuePayment } = await import('../../../../lib/queue/paymentQueue.js');
-  return { paymentQueue, queuePayment };
+  const { getPaymentQueue: getPaymentQueueInstance, queuePayment } = await import('@apps-lib/queue/paymentQueue.js');
+  return { paymentQueue: getPaymentQueueInstance(), queuePayment };
 }
 
 /**
  * Get webhook queue (lazy load)
  */
 export async function getWebhookQueue() {
-  const { webhookQueue, queueWebhook } = await import('../../../../lib/queue/webhookQueue.js');
-  return { webhookQueue, queueWebhook };
+  const { getWebhookQueue: getWebhookQueueInstance, queueWebhook } = await import('@apps-lib/queue/webhookQueue.js');
+  return { webhookQueue: getWebhookQueueInstance(), queueWebhook };
 }
 
 /**
@@ -24,8 +24,8 @@ export async function getWebhookQueue() {
  */
 export async function getQueueStatus() {
   try {
-    const { getQueueStatus: getPaymentStatus } = await import('../../../../lib/queue/paymentQueue.js');
-    const { getQueueStatus: getWebhookStatus } = await import('../../../../lib/queue/webhookQueue.js');
+    const { getQueueStatus: getPaymentStatus } = await import('@apps-lib/queue/paymentQueue.js');
+    const { getQueueStatus: getWebhookStatus } = await import('@apps-lib/queue/webhookQueue.js');
     
     const [paymentStatus, webhookStatus] = await Promise.all([
       getPaymentStatus().catch(() => ({ error: 'unavailable' })),

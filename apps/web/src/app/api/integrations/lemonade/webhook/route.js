@@ -270,7 +270,7 @@ export async function POST(request) {
       try {
         const paymentIntentId = payment?.metadata?.payment_intent_id;
         if (paymentIntentId && mapped === "completed") {
-          const { updateProjectOnPayment } = await import("../../../../lib/projects/updateProjectOnPayment.js");
+          const { updateProjectOnPayment } = await import("@apps-lib/projects/updateProjectOnPayment.js");
           await updateProjectOnPayment(paymentIntentId, "completed");
         }
       } catch (e) {

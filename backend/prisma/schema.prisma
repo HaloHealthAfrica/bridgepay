@@ -1,0 +1,674 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==================== ENUMS ====================
+
+enum UserRole {
+  CUSTOMER
+  MERCHANT
+  IMPLEMENTER
+  PROJECT_VERIFIER
+  KYC_VERIFIER
+  ADMIN
+}
+
+enum KYCStatus {
+  INCOMPLETE
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+  ESCROW_LOCK
+  ESCROW_RELEASE
+  REFUND
+  PAYMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum ProjectStatus {
+  DRAFT
+  OPEN
+  ASSIGNED
+  ACTIVE
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum DisputeStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum FeeFlow {
+  WALLET_DEPOSIT
+  WALLET_WITHDRAWAL
+  WALLET_TRANSFER
+  WALLET_SEND_MPESA
+  MERCHANT_QR_PAY
+  MERCHANT_CARD_PAY
+  PROJECT_FUND_WALLET
+  PROJECT_FUND_CARD
+}
+
+enum FeePayer {
+  SENDER
+  RECEIVER
+}
+
+enum PlatformLedgerEntryType {
+  FEE_REVENUE_CREDIT
+  FEE_REVENUE_DEBIT
+  PAYOUT_CLEARING_CREDIT
+  PAYOUT_CLEARING_DEBIT
+}
+
+// ==================== MODELS ====================
+
+model User {
+  id               String     @id @default(uuid())
+  email            String     @unique
+  phone            String     @unique
+  password         String
+  name             String
+  role             UserRole   @default(CUSTOMER)
+  kycStatus        KYCStatus  @default(INCOMPLETE)
+  status           UserStatus @default(ACTIVE)
+  twoFactorEnabled Boolean    @default(false)
+  twoFactorSecret  String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  lastLoginAt      DateTime?
+
+  // Relations
+  wallet               Wallet?
+  profile              UserProfile?
+  kycSubmission        KYCSubmission?
+  ownedProjects        Project[]            @relation("ProjectOwner")
+  implementedProjects  Project[]            @relation("ProjectImplementer")
+  appliedProjects      ProjectApplication[]
+  sentTransactions     Transaction[]        @relation("TransactionSender")
+  receivedTransactions Transaction[]        @relation("TransactionReceiver")
+  verifiedMilestones   Milestone[]          @relation("MilestoneVerifier")
+  verifiedKYCs         KYCSubmission[]      @relation("KYCVerifier")
+  reportedDisputes     Dispute[]            @relation("DisputeReporter")
+  notifications        Notification[]
+  sentMessages         Message[]            @relation("MessageSender")
+  reviewsGiven         Review[]             @relation("ReviewsGiven")
+  reviewsReceived      Review[]             @relation("ReviewsReceived")
+  merchantProfile      MerchantProfile?
+  sessions             Session[]
+  // Enhanced transaction history relations
+  transactionCategories TransactionCategory[]
+  filterPresets        TransactionFilterPreset[]
+  analyticsCache       TransactionAnalyticsCache[]
+  transactionExports   TransactionExport[]
+  receiptBatches       ReceiptBatch[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+}
+
+model UserProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  bio               String?
+  skills            String[]
+  portfolio         Json?
+  hourlyRate        Decimal? @db.Decimal(10, 2)
+  availability      String?
+  location          String?
+  languages         String[]
+  experience        Int?
+  averageRating     Decimal? @db.Decimal(3, 2)
+  totalReviews      Int      @default(0)
+  completedProjects Int      @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MerchantProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  businessName    String
+  businessType    String?
+  businessAddress String?
+  qrCode          String?
+  paymentMethods  String[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Wallet {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  balance        Decimal  @default(0) @db.Decimal(12, 2)
+  pendingBalance Decimal  @default(0) @db.Decimal(12, 2)
+  escrowBalance  Decimal  @default(0) @db.Decimal(12, 2)
+  currency       String   @default("KES")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Transaction {
+  id          String            @id @default(uuid())
+  fromUserId  String?
+  toUserId    String?
+  amount      Decimal           @db.Decimal(12, 2)
+  fee         Decimal           @default(0) @db.Decimal(12, 2)
+  type        TransactionType
+  status      TransactionStatus @default(PENDING)
+  reference   String            @unique
+  description String?
+  metadata    Json?
+  receiptUrl  String?
+  // Enhanced transaction history fields
+  categoryId  String?
+  tags        String[]          @default([])
+  notes       String?
+  receiptStatus String          @default("NONE") // NONE, GENERATING, AVAILABLE, FAILED
+  searchableText String?        // Computed field for full-text search
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  fromUser User? @relation("TransactionSender", fields: [fromUserId], references: [id])
+  toUser   User? @relation("TransactionReceiver", fields: [toUserId], references: [id])
+  category TransactionCategory? @relation(fields: [categoryId], references: [id])
+  platformLedgerEntries PlatformLedgerEntry[] @relation("PlatformLedgerEntryTransaction")
+  receipts Receipt[]
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([reference])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@index([categoryId])
+  @@index([searchableText])
+  @@index([amount])
+}
+
+model Project {
+  id            String        @id @default(uuid())
+  title         String
+  description   String
+  category      String?
+  budget        Decimal       @db.Decimal(12, 2)
+  ownerId       String
+  implementerId String?
+  status        ProjectStatus @default(DRAFT)
+  escrowBalance Decimal       @default(0) @db.Decimal(12, 2)
+  startDate     DateTime?
+  endDate       DateTime?
+  deadline      DateTime?
+  featured      Boolean       @default(false)
+  views         Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  owner         User                   @relation("ProjectOwner", fields: [ownerId], references: [id])
+  implementer   User?                  @relation("ProjectImplementer", fields: [implementerId], references: [id])
+  milestones    Milestone[]
+  disputes      Dispute[]
+  applications  ProjectApplication[]
+  conversations Conversation[]
+
+  @@index([ownerId])
+  @@index([implementerId])
+  @@index([status])
+  @@index([category])
+  @@index([featured])
+}
+
+model ProjectApplication {
+  id                String   @id @default(uuid())
+  projectId         String
+  userId            String
+  coverLetter       String?
+  proposedRate      Decimal? @db.Decimal(10, 2)
+  estimatedDuration String?
+  status            String   @default("PENDING")
+  createdAt         DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  applicant User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
+}
+
+model Milestone {
+  id            String          @id @default(uuid())
+  projectId     String
+  title         String
+  description   String
+  amount        Decimal         @db.Decimal(12, 2)
+  dueDate       DateTime?
+  status        MilestoneStatus @default(PENDING)
+  verifierId    String?
+  evidence      Json?
+  verifierNotes String?
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  verifier User?    @relation("MilestoneVerifier", fields: [verifierId], references: [id])
+  disputes Dispute[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([verifierId])
+}
+
+model KYCSubmission {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  status        KYCStatus @default(INCOMPLETE)
+  idType        String?
+  idNumber      String?
+  dateOfBirth   DateTime?
+  address       String?
+  documents     Json?
+  verifierId    String?
+  verifierNotes String?
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifier User? @relation("KYCVerifier", fields: [verifierId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([verifierId])
+}
+
+model Dispute {
+  id          String        @id @default(uuid())
+  projectId   String
+  milestoneId String?
+  reporterId  String
+  status      DisputeStatus @default(OPEN)
+  priority    String        @default("MEDIUM")
+  issue       String
+  evidence    Json?
+  resolution  String?
+  resolvedBy  String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  resolvedAt  DateTime?
+
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone Milestone? @relation(fields: [milestoneId], references: [id])
+  reporter  User       @relation("DisputeReporter", fields: [reporterId], references: [id])
+
+  @@index([projectId])
+  @@index([milestoneId])
+  @@index([reporterId])
+  @@index([status])
+  @@index([priority])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  actionUrl String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model Conversation {
+  id            String   @id @default(uuid())
+  projectId     String?
+  participants  String[]
+  lastMessage   String?
+  lastMessageAt DateTime?
+  createdAt     DateTime @default(now())
+
+  project  Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([projectId])
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  attachments    Json?
+  status         MessageStatus @default(SENT)
+  createdAt      DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  projectId String
+  reviewerId String
+  revieweeId String
+  rating    Int
+  comment   String?
+  helpful   Int      @default(0)
+  createdAt DateTime @default(now())
+
+  reviewer User @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  reviewee User @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+
+  @@unique([projectId, reviewerId])
+  @@index([reviewerId])
+  @@index([revieweeId])
+  @@index([rating])
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  userId     String
+  deviceInfo String?
+  ipAddress  String?
+  location   String?
+  lastActive DateTime @default(now())
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  revokedAt  DateTime?
+
+  // Refresh token binding (hash of the full refresh token, rotated on refresh)
+  refreshTokenHash String?
+  refreshTokenJti  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@index([refreshTokenJti])
+}
+
+model DailyStat {
+  id                String   @id @default(uuid())
+  date              DateTime @unique
+  newUsers          Int      @default(0)
+  totalTransactions Int      @default(0)
+  totalVolume       Decimal  @default(0) @db.Decimal(12, 2)
+  activeProjects    Int      @default(0)
+
+  @@index([date])
+}
+
+model IdempotencyKey {
+  id         String   @id
+  userId     String?
+  endpoint   String
+  requestHash String
+  response   Json?
+  statusCode Int?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+
+  @@unique([userId, endpoint, requestHash])
+  @@index([expiresAt])
+}
+
+model FeeSchedule {
+  id        String   @id @default(uuid())
+  active    Boolean  @default(true)
+  name      String
+  flow      FeeFlow
+  method    String? // optional method discriminator (e.g. MPESA_B2C, CARD, PAYBILL, QR_WALLET)
+  currency  String   @default("KES")
+  feePayer  FeePayer @default(SENDER)
+  bps       Int      @default(0) // percent in basis points (100 bps = 1%)
+  flat      Decimal  @default(0) @db.Decimal(12, 2)
+  minFee    Decimal  @default(0) @db.Decimal(12, 2)
+  maxFee    Decimal? @db.Decimal(12, 2)
+  metadata  Json?
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@index([flow])
+  @@index([currency])
+  @@index([method])
+  @@index([createdAt])
+}
+
+model PlatformAccount {
+  id              String   @id @default(uuid())
+  currency        String   @unique
+  feeRevenue      Decimal  @default(0) @db.Decimal(12, 2)
+  payoutClearing  Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model PlatformLedgerEntry {
+  id            String                 @id @default(uuid())
+  currency      String
+  type          PlatformLedgerEntryType
+  amount        Decimal                @db.Decimal(12, 2)
+  transactionId String?
+  reference     String?
+  metadata      Json?
+  createdAt     DateTime               @default(now())
+
+  transaction Transaction? @relation("PlatformLedgerEntryTransaction", fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([currency])
+  @@index([type])
+  @@index([createdAt])
+  @@index([transactionId])
+}
+
+// Enhanced Transaction History Models
+
+model TransactionCategory {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  color       String   @default("#6B7280")
+  icon        String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([isDefault])
+}
+
+model TransactionFilterPreset {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  filters     Json     // Stores the filter configuration
+  isDefault   Boolean  @default(false)
+  lastUsed    DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([isDefault])
+  @@index([lastUsed])
+}
+
+model TransactionAnalyticsCache {
+  id        String   @id @default(uuid())
+  userId    String
+  cacheKey  String   // Hash of the analytics query parameters
+  data      Json     // Cached analytics result
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cacheKey])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model TransactionExport {
+  id                 String   @id @default(uuid())
+  userId             String
+  format             String   // CSV, PDF
+  filters            Json?    // Export filter configuration
+  includeAnalytics   Boolean  @default(false)
+  emailDelivery      Boolean  @default(false)
+  status             String   @default("PROCESSING") // PROCESSING, COMPLETED, FAILED
+  fileName           String?
+  filePath           String?
+  downloadUrl        String?
+  downloadToken      String?  // Secure token for download access
+  downloadExpiresAt  DateTime? // When the download link expires
+  fileSize           Int?
+  recordCount        Int      @default(0)
+  errorMessage       String?
+  emailedAt          DateTime?
+  createdAt          DateTime @default(now())
+  completedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([downloadToken])
+  @@index([downloadExpiresAt])
+}
+
+// Receipt Models
+
+model Receipt {
+  id            String   @id @default(uuid())
+  transactionId String
+  format        String   @default("PDF") // PDF, HTML
+  status        String   @default("GENERATING") // GENERATING, COMPLETED, FAILED
+  downloadUrl   String?
+  includeQRCode Boolean  @default(true)
+  includeLogo   Boolean  @default(true)
+  customMessage String?
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  expiresAt     DateTime?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  shares      ReceiptShare[]
+
+  @@index([transactionId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReceiptBatch {
+  id            String   @id @default(uuid())
+  userId        String
+  status        String   @default("PROCESSING") // PROCESSING, COMPLETED, FAILED
+  totalReceipts Int      @default(0)
+  successCount  Int      @default(0)
+  failureCount  Int      @default(0)
+  format        String   @default("PDF")
+  emailDelivery Boolean  @default(false)
+  downloadUrl   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReceiptShare {
+  id        String   @id @default(uuid())
+  receiptId String
+  method    String   // EMAIL, LINK, SMS
+  recipient String
+  message   String?
+  shareUrl  String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  receipt Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@index([method])
+  @@index([expiresAt])
+}

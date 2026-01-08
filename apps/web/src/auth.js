@@ -376,4 +376,50 @@ export const { auth } = CreateAuth({
     signIn: '/account/signin',
     signOut: '/account/logout',
   },
+  session: {
+    strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+    updateAge: 24 * 60 * 60, // 24 hours
+  },
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === 'production' 
+        ? `__Secure-next-auth.session-token`
+        : `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        domain: process.env.NODE_ENV === 'production' 
+          ? process.env.AUTH_COOKIE_DOMAIN 
+          : undefined,
+      }
+    },
+    callbackUrl: {
+      name: process.env.NODE_ENV === 'production' 
+        ? `__Secure-next-auth.callback-url`
+        : `next-auth.callback-url`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      }
+    },
+    csrfToken: {
+      name: process.env.NODE_ENV === 'production' 
+        ? `__Host-next-auth.csrf-token`
+        : `next-auth.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      }
+    }
+  },
+  secret: process.env.AUTH_SECRET,
+  trustHost: true,
+  adapter,
 })

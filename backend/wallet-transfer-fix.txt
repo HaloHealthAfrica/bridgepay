@@ -1,0 +1,35 @@
+RACE CONDITION FIX FOR: wallet.controller.ts - transfer() function
+
+INSTRUCTIONS:
+1. Open backend/src/controllers/wallet.controller.ts
+2. Find the transfer() function (around line 221)
+3. Replace lines 234-235 with the block below:
+
+REMOVE THESE LINES (234-235):
+  const senderWallet = await prisma.wallet.findUnique({ where: { userId: req.user!.userId } });
+  if (!senderWallet || Number(senderWallet.balance) < Number(amount)) throw new AppError("Insufficient balance", 400);
+
+REPLACE WITH (move check inside transaction at line 240):
+  // SECURITY FIX: Move balance check INSIDE transaction
+  const result = await prisma.$transaction(async (tx) => {
+    // Check balance inside transaction with row-level locking
+    const senderWallet = await tx.wallet.findUnique({
+      where: { userId: req.user!.userId }
+    });
+
+    if (!senderWallet || Number(senderWallet.balance) < Number(amount)) {
+      throw new AppError("Insufficient balance", 400);
+    }
+
+    // Ensure recipient wallet exists
+    const recipientWallet = await tx.wallet.findUnique({
+      where: { userId: recipient.id }
+    });
+    if (!recipientWallet) {
+      throw new AppError("Recipient wallet not found", 404);
+    }
+
+    // ... rest of transaction (keep existing code)
+
+ALSO UPDATE line 257:
+  reference: `TRF-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
