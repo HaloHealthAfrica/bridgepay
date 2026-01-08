@@ -117,6 +117,7 @@ export async function processQRPayment(req: Request, res: Response) {
 
   const result = await prisma.$transaction(
     async (tx) => {
+      // SECURITY FIX: Check balance INSIDE transaction to prevent race conditions
       const customerWallet = await tx.wallet.findUnique({ where: { userId: req.user!.userId } });
       if (!customerWallet) throw new AppError("Wallet not found", 404);
 
@@ -127,6 +128,14 @@ export async function processQRPayment(req: Request, res: Response) {
       if (credited.lte(0)) throw new AppError("Fee exceeds amount", 400);
 
       if (customerWallet.balance.lt(debited)) throw new AppError("Insufficient balance", 400);
+
+      // Ensure merchant wallet exists
+      const merchantWallet = await tx.wallet.findUnique({
+        where: { userId: merchantId }
+      });
+      if (!merchantWallet) {
+        throw new AppError("Merchant wallet not found", 404);
+      }
 
       await tx.wallet.update({
         where: { userId: req.user!.userId },

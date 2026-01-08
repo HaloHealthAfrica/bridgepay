@@ -11,6 +11,8 @@ import { notificationRouter } from "./notification.routes";
 import { kycRouter } from "./kyc.routes";
 import { accountRouter } from "./account.routes";
 import { adminRouter } from "./admin.routes";
+import transactionReceiptRouter from "./transactionReceipt.routes";
+import transactionRouter from "./transaction.routes";
 
 export const apiRouter = Router();
 
@@ -26,5 +28,7 @@ apiRouter.use("/notifications", notificationRouter);
 apiRouter.use("/kyc", kycRouter);
 apiRouter.use("/account", accountRouter);
 apiRouter.use("/admin", adminRouter);
+apiRouter.use("/transactions", transactionRouter);
+apiRouter.use("/transactions/receipts", transactionReceiptRouter);
 
 

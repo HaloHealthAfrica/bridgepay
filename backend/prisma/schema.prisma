@@ -137,6 +137,12 @@ model User {
   reviewsReceived      Review[]             @relation("ReviewsReceived")
   merchantProfile      MerchantProfile?
   sessions             Session[]
+  // Enhanced transaction history relations
+  transactionCategories TransactionCategory[]
+  filterPresets        TransactionFilterPreset[]
+  analyticsCache       TransactionAnalyticsCache[]
+  transactionExports   TransactionExport[]
+  receiptBatches       ReceiptBatch[]
 
   @@index([email])
   @@index([phone])
@@ -204,12 +210,20 @@ model Transaction {
   description String?
   metadata    Json?
   receiptUrl  String?
+  // Enhanced transaction history fields
+  categoryId  String?
+  tags        String[]          @default([])
+  notes       String?
+  receiptStatus String          @default("NONE") // NONE, GENERATING, AVAILABLE, FAILED
+  searchableText String?        // Computed field for full-text search
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
   fromUser User? @relation("TransactionSender", fields: [fromUserId], references: [id])
   toUser   User? @relation("TransactionReceiver", fields: [toUserId], references: [id])
+  category TransactionCategory? @relation(fields: [categoryId], references: [id])
   platformLedgerEntries PlatformLedgerEntry[] @relation("PlatformLedgerEntryTransaction")
+  receipts Receipt[]
 
   @@index([fromUserId])
   @@index([toUserId])
@@ -217,6 +231,9 @@ model Transaction {
   @@index([type])
   @@index([status])
   @@index([createdAt])
+  @@index([categoryId])
+  @@index([searchableText])
+  @@index([amount])
 }
 
 model Project {
@@ -511,4 +528,147 @@ model PlatformLedgerEntry {
   @@index([type])
   @@index([createdAt])
   @@index([transactionId])
+}
+
+// Enhanced Transaction History Models
+
+model TransactionCategory {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  color       String   @default("#6B7280")
+  icon        String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([isDefault])
+}
+
+model TransactionFilterPreset {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  filters     Json     // Stores the filter configuration
+  isDefault   Boolean  @default(false)
+  lastUsed    DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([isDefault])
+  @@index([lastUsed])
+}
+
+model TransactionAnalyticsCache {
+  id        String   @id @default(uuid())
+  userId    String
+  cacheKey  String   // Hash of the analytics query parameters
+  data      Json     // Cached analytics result
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cacheKey])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model TransactionExport {
+  id                 String   @id @default(uuid())
+  userId             String
+  format             String   // CSV, PDF
+  filters            Json?    // Export filter configuration
+  includeAnalytics   Boolean  @default(false)
+  emailDelivery      Boolean  @default(false)
+  status             String   @default("PROCESSING") // PROCESSING, COMPLETED, FAILED
+  fileName           String?
+  filePath           String?
+  downloadUrl        String?
+  downloadToken      String?  // Secure token for download access
+  downloadExpiresAt  DateTime? // When the download link expires
+  fileSize           Int?
+  recordCount        Int      @default(0)
+  errorMessage       String?
+  emailedAt          DateTime?
+  createdAt          DateTime @default(now())
+  completedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([downloadToken])
+  @@index([downloadExpiresAt])
+}
+
+// Receipt Models
+
+model Receipt {
+  id            String   @id @default(uuid())
+  transactionId String
+  format        String   @default("PDF") // PDF, HTML
+  status        String   @default("GENERATING") // GENERATING, COMPLETED, FAILED
+  downloadUrl   String?
+  includeQRCode Boolean  @default(true)
+  includeLogo   Boolean  @default(true)
+  customMessage String?
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  expiresAt     DateTime?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  shares      ReceiptShare[]
+
+  @@index([transactionId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReceiptBatch {
+  id            String   @id @default(uuid())
+  userId        String
+  status        String   @default("PROCESSING") // PROCESSING, COMPLETED, FAILED
+  totalReceipts Int      @default(0)
+  successCount  Int      @default(0)
+  failureCount  Int      @default(0)
+  format        String   @default("PDF")
+  emailDelivery Boolean  @default(false)
+  downloadUrl   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReceiptShare {
+  id        String   @id @default(uuid())
+  receiptId String
+  method    String   // EMAIL, LINK, SMS
+  recipient String
+  message   String?
+  shareUrl  String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  receipt Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@index([method])
+  @@index([expiresAt])
 }

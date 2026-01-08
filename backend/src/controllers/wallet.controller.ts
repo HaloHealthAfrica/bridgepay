@@ -266,7 +266,7 @@ export async function transfer(req: Request, res: Response) {
 
   const result = await prisma.$transaction(
     async (tx) => {
-      // Check balance INSIDE transaction to prevent race conditions
+      // SECURITY FIX: Check balance INSIDE transaction to prevent race conditions
       const senderWallet = await tx.wallet.findUnique({ where: { userId: req.user!.userId } });
       if (!senderWallet) throw new AppError("Wallet not found", 404);
 
@@ -277,6 +277,14 @@ export async function transfer(req: Request, res: Response) {
       if (credited.lte(0)) throw new AppError("Fee exceeds amount", 400);
 
       if (senderWallet.balance.lt(debited)) throw new AppError("Insufficient balance", 400);
+
+      // Ensure recipient wallet exists
+      const recipientWallet = await tx.wallet.findUnique({
+        where: { userId: recipient.id }
+      });
+      if (!recipientWallet) {
+        throw new AppError("Recipient wallet not found", 404);
+      }
 
       await tx.wallet.update({
         where: { userId: req.user!.userId },
@@ -348,6 +356,7 @@ export async function withdrawMpesa(req: Request, res: Response) {
 
   const created = await prisma.$transaction(
     async (tx) => {
+      // SECURITY FIX: Check balance INSIDE transaction to prevent race conditions
       const wallet = await tx.wallet.findUnique({ where: { userId: req.user!.userId } });
       if (!wallet || Number(wallet.balance) < total) throw new AppError("Insufficient balance", 400);
 

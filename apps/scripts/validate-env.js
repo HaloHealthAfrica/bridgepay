@@ -77,7 +77,7 @@ function validateEnv() {
   if (missing.length > 0) {
     console.error('❌ Missing required environment variables:');
     missing.forEach(v => console.error(`   - ${v}`));
-    console.error('\n💡 Copy .env.example to .env and fill in the values');
+    console.error('\n💡 Copy apps/web/env.example to apps/web/.env and fill in the values (or set them in Vercel).');
     process.exit(1);
   }
 

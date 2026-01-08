@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 // Strict rate limiter for authentication endpoints
 export const authRateLimiter = rateLimit({
@@ -7,10 +7,11 @@ export const authRateLimiter = rateLimit({
   message: "Too many login attempts. Please try again in 15 minutes.",
   standardHeaders: true,
   legacyHeaders: false,
-  // Use IP + email for more granular limiting
+  // Use IP + email for more granular limiting with IPv6 support
   keyGenerator: (req) => {
     const email = req.body?.email || "unknown";
-    return `${req.ip}-${email}`;
+    const ip = ipKeyGenerator(req);
+    return `${ip}-${email}`;
   },
 });
 
@@ -22,7 +23,7 @@ export const paymentRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const userId = (req as any).user?.userId || req.ip;
+    const userId = (req as any).user?.userId || ipKeyGenerator(req);
     return `payment-${userId}`;
   },
 });

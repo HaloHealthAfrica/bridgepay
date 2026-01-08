@@ -69,23 +69,29 @@ class MpesaService {
 
     if (!merchantRequestID) return;
 
+    // SECURITY FIX: Only find PENDING transactions to prevent duplicate processing
     const transaction = await prisma.transaction.findFirst({
       where: {
         metadata: {
           path: ["merchantRequestID"],
           equals: merchantRequestID,
         },
+        status: "PENDING", // Only process pending transactions
       },
     });
 
-    if (!transaction) return;
+    // Transaction not found or already processed
+    if (!transaction) {
+      console.warn(`[M-Pesa] Callback for non-existent or already processed transaction: ${merchantRequestID}`);
+      return;
+    }
 
     if (resultCode === 0) {
       const amount = transaction.amount;
       const fee = transaction.fee ?? new Prisma.Decimal(0);
       const net = amount.sub(fee);
       await prisma.$transaction(async (tx) => {
-        // Ensure we only apply credit once (webhooks may be retried)
+        // SECURITY FIX: Use updateMany with WHERE status=PENDING to prevent race conditions
         const updated = await tx.transaction.updateMany({
           where: { id: transaction.id, status: "PENDING" },
           data: {
@@ -93,7 +99,12 @@ class MpesaService {
             metadata: { ...(transaction.metadata as any), callback: body },
           },
         });
-        if (updated.count !== 1) return;
+
+        // If update count is 0, another callback already processed this
+        if (updated.count === 0) {
+          console.warn(`[M-Pesa] Race condition prevented for transaction: ${transaction.id}`);
+          return;
+        }
 
         if (transaction.toUserId) {
           await tx.wallet.update({
@@ -123,6 +134,7 @@ class MpesaService {
         }
       });
     } else {
+      // Mark as failed, but only if still pending
       await prisma.transaction.updateMany({
         where: { id: transaction.id, status: "PENDING" },
         data: { status: "FAILED", metadata: { ...(transaction.metadata as any), callback: body } },

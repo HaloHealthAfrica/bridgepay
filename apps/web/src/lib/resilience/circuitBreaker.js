@@ -3,7 +3,8 @@
  * Implements circuit breaker pattern to prevent cascading failures
  */
 
-import { CircuitBreaker } from 'opossum';
+// `opossum` is CommonJS. In ESM builds (React Router/Vite SSR), import it as default.
+import CircuitBreaker from 'opossum';
 
 const defaultOptions = {
   timeout: 3000, // 3 second timeout

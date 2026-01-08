@@ -26,6 +26,95 @@ export const walletAPI = {
   depositPaybill: (body: { amount: number }) => http.post("/wallet/deposit/paybill", body),
 };
 
+// Enhanced Transaction API for advanced filtering, search, and analytics
+export const transactionAPI = {
+  // Enhanced transaction listing with filtering
+  getTransactions: (params?: any) => http.get("/transactions", { params }),
+  
+  // Search functionality
+  searchTransactions: (params: { query: string; page?: number; limit?: number; highlight?: boolean }) =>
+    http.get("/transactions/search", { params }),
+  getSearchSuggestions: (params: { query: string }) =>
+    http.get("/transactions/search/suggestions", { params }),
+  
+  // Transaction details
+  getTransactionDetails: (id: string) => http.get(`/transactions/${id}`),
+  
+  // Categories
+  getCategories: () => http.get("/transactions/categories"),
+  createCategory: (body: { name: string; color?: string; icon?: string }) =>
+    http.post("/transactions/categories", body),
+  updateCategory: (id: string, body: { name?: string; color?: string; icon?: string }) =>
+    http.put(`/transactions/categories/${id}`, body),
+  deleteCategory: (id: string) => http.delete(`/transactions/categories/${id}`),
+  
+  // Category assignment
+  assignCategory: (body: { transactionIds: string[]; categoryId: string }) =>
+    http.post("/transactions/assign-category", body),
+  bulkAssignCategory: (body: { transactionIds: string[]; categoryId: string }) =>
+    http.post("/transactions/bulk-assign-category", body),
+  getCategorySuggestions: (id: string) => http.get(`/transactions/category-suggestions/${id}`),
+  
+  // Filter presets
+  getFilterPresets: () => http.get("/transactions/filters/presets"),
+  saveFilterPreset: (body: { name: string; filters: any }) =>
+    http.post("/transactions/filters/presets", body),
+  deleteFilterPreset: (id: string) => http.delete(`/transactions/filters/presets/${id}`),
+  
+  // Analytics
+  getSpendingTrends: (params: { startDate: string; endDate: string }) =>
+    http.get("/transactions/analytics/trends", { params }),
+  getTransactionInsights: (params: { startDate: string; endDate: string }) =>
+    http.get("/transactions/analytics/insights", { params }),
+  getCategoryBreakdown: (params: { startDate: string; endDate: string }) =>
+    http.get("/transactions/analytics/category-breakdown", { params }),
+  comparePeriods: (params: { 
+    period1Start: string; 
+    period1End: string; 
+    period2Start: string; 
+    period2End: string; 
+  }) => http.get("/transactions/analytics/compare-periods", { params }),
+  
+  // Export
+  createExport: (body: { 
+    format: 'CSV' | 'PDF'; 
+    filters?: any; 
+    includeAnalytics?: boolean; 
+    emailDelivery?: boolean; 
+  }) => http.post("/transactions/export", body),
+  getExportStatus: (id: string) => http.get(`/transactions/export/${id}/status`),
+  downloadExport: (id: string, token: string) => 
+    http.get(`/transactions/export/${id}/download`, { params: { token } }),
+  emailExport: (id: string, body: { email: string }) =>
+    http.post(`/transactions/export/${id}/email`, body),
+  getExportHistory: (params?: { limit?: number }) =>
+    http.get("/transactions/exports", { params }),
+  cancelExport: (id: string) => http.delete(`/transactions/export/${id}`),
+  
+  // Receipts
+  generateReceipt: (id: string, body?: { 
+    format?: 'PDF' | 'HTML'; 
+    includeQRCode?: boolean; 
+    includeLogo?: boolean; 
+    customMessage?: string; 
+  }) => http.post(`/transactions/${id}/receipt`, body),
+  getReceiptStatus: (id: string) => http.get(`/transactions/${id}/receipt/status`),
+  generateBulkReceipts: (body: { 
+    transactionIds: string[]; 
+    format?: 'PDF' | 'HTML'; 
+    includeQRCode?: boolean; 
+    includeLogo?: boolean; 
+    emailDelivery?: boolean; 
+  }) => http.post("/transactions/receipts/bulk", body),
+  getReceiptSharingOptions: (id: string) => http.get(`/transactions/${id}/receipt/sharing`),
+  shareReceipt: (id: string, body: { 
+    method: 'EMAIL' | 'LINK' | 'SMS'; 
+    recipient: string; 
+    message?: string; 
+    expiresIn?: number; 
+  }) => http.post(`/transactions/${id}/receipt/share`, body),
+};
+
 export const merchantAPI = {
   me: () => http.get("/merchant/me"),
   generateQRCode: () => http.post("/merchant/qr"),

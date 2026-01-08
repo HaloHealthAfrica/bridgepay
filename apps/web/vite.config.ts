@@ -62,34 +62,14 @@ export default defineConfig({
     loadFontsFromTailwindSource(),
     addRenderIds(),
     reactRouter(),
-    tsconfigPaths(),
+    // IMPORTANT: Scope tsconfig path resolution to THIS app only.
+    // In a monorepo, the default behavior can pick up other `tsconfig.json`
+    // files (e.g. `apps/mobile/tsconfig.json`) and fail the web build on Vercel.
+    tsconfigPaths({
+      projects: [path.resolve(__dirname, 'tsconfig.json')],
+    }),
     aliases(),
     layoutWrapperPlugin(),
-    // Plugin to handle imports from outside web app during SSR build
-    // Must run early to catch all imports
-    {
-      name: 'externalize-outside-web-app',
-      enforce: 'pre', // Run before other resolve plugins
-      resolveId(id, importer) {
-        // Normalize paths for comparison
-        const normalizedId = id?.replace(/\\/g, '/');
-        const normalizedImporter = importer?.replace(/\\/g, '/');
-        
-        // If importing from a file outside web app, externalize it
-        if (normalizedImporter && normalizedImporter.includes('/apps/lib/')) {
-          return { id, external: true };
-        }
-        // If the resolved ID points to a file outside web app, externalize it
-        if (normalizedId && normalizedId.includes('/apps/lib/')) {
-          return { id, external: true };
-        }
-        // Catch old circuitBreaker path specifically
-        if (normalizedId && normalizedId.includes('apps/lib/resilience/circuitBreaker')) {
-          return { id, external: true };
-        }
-        return null;
-      },
-    },
   ],
   resolve: {
     alias: {
@@ -99,32 +79,15 @@ export default defineConfig({
       '@auth/create/react': '@hono/auth-js/react',
       '@auth/create': path.resolve(__dirname, './src/__create/@auth/create'),
       '@': path.resolve(__dirname, 'src'),
+      // Monorepo shared libraries (NOT inside apps/web)
+      '@apps-lib': path.resolve(__dirname, '..', 'lib'),
     },
     dedupe: ['react', 'react-dom'],
   },
   build: {
-    rollupOptions: {
-      external: (id, importer) => {
-        // Normalize paths for comparison
-        const normalizedId = id?.replace(/\\/g, '/');
-        const normalizedImporter = importer?.replace(/\\/g, '/');
-        
-        // Externalize files outside the web app directory from SSR bundle
-        // Check if the import is from outside the web app src directory
-        if (normalizedImporter && normalizedImporter.includes('/apps/lib/')) {
-          return true;
-        }
-        // Externalize imports that reference files outside src
-        if (normalizedId && normalizedId.includes('/apps/lib/')) {
-          return true;
-        }
-        // Also check for resolved paths that might point to old locations
-        if (normalizedId && normalizedId.includes('apps/lib/resilience/circuitBreaker')) {
-          return true;
-        }
-        return false;
-      },
-    },
+    // React Router Hono server uses top-level await in the server entry.
+    // Ensure the build target supports it (ES2022+).
+    target: 'es2022',
   },
   clearScreen: false,
   server: {

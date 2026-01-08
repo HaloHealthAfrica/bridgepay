@@ -1,8 +1,8 @@
 import { auth } from "@/auth";
 import { startRequest } from "@/app/api/utils/logger";
 import sql from "@/app/api/utils/sql";
-import { sendInvoiceNotification } from "../../../../lib/notifications/service.js";
-import { isEmailConfigured } from "../../../../lib/notifications/email.js";
+import { sendInvoiceNotification } from "@apps-lib/notifications/service.js";
+import { isEmailConfigured } from "@apps-lib/notifications/email.js";
 
 function isPrivileged(role) {
   return role === "admin" || role === "merchant";

@@ -3,62 +3,102 @@
  * Handles asynchronous email and SMS notifications
  */
 
-import { Queue, Worker } from 'bullmq';
+import { createRequire } from 'node:module';
 import { connection } from './redis.js';
 
-// Notification queue
-export const notificationQueue = new Queue('notifications', {
-  connection,
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 2000,
-    },
-    removeOnComplete: {
-      age: 24 * 3600, // Keep completed jobs for 24 hours
-    },
-    removeOnFail: {
-      age: 7 * 24 * 3600, // Keep failed jobs for 7 days
-    },
-  },
-});
+// BullMQ is CommonJS; load via require to avoid ESM/CJS interop issues in SSR builds.
+const require = createRequire(import.meta.url);
+const { Queue, Worker } = require('bullmq');
 
-// Notification worker
-export const notificationWorker = new Worker(
-  'notifications',
-  async (job) => {
-    const { type, payload } = job.data;
+const shouldStartWorkers =
+  process.env.ENABLE_QUEUE_WORKERS === 'true' &&
+  process.env.VERCEL !== '1' &&
+  process.env.NODE_ENV !== 'test';
 
-    console.log(`[Notification Queue] Processing job ${job.id} for type ${type}`);
+// IMPORTANT: Do not create queues at module import-time.
+export let notificationQueue = null;
 
-    try {
-      switch (type) {
-        case 'email':
-          await processEmailNotification(payload);
-          break;
-        case 'sms':
-          await processSMSNotification(payload);
-          break;
-        default:
-          console.warn(`[Notification Queue] Unknown notification type: ${type}`);
-      }
-
-      return { ok: true };
-    } catch (error) {
-      console.error(`[Notification Queue] Job ${job.id} failed:`, error);
-      throw error;
-    }
-  },
-  {
-    connection,
-    concurrency: 10, // Process 10 notifications concurrently
-    limiter: {
-      max: 100, // Max 100 jobs
-      duration: 1000, // Per second
-    },
+export function getNotificationQueue() {
+  if (!notificationQueue) {
+    notificationQueue = new Queue('notifications', {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600, // Keep completed jobs for 24 hours
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+        },
+      },
+    });
   }
-);
+  return notificationQueue;
+}
+
+// IMPORTANT: Workers should NOT run inside serverless (Vercel) functions or during build/prerender.
+// They should run in a dedicated process/container/cron worker.
+let notificationWorker = null;
+export { notificationWorker };
+
+export function startNotificationWorker() {
+  if (!shouldStartWorkers) return null;
+  if (notificationWorker) return notificationWorker;
+
+  notificationWorker = new Worker(
+    'notifications',
+    async (job) => {
+      const { type, payload } = job.data;
+
+      console.log(`[Notification Queue] Processing job ${job.id} for type ${type}`);
+
+      try {
+        switch (type) {
+          case 'email':
+            await processEmailNotification(payload);
+            break;
+          case 'sms':
+            await processSMSNotification(payload);
+            break;
+          default:
+            console.warn(`[Notification Queue] Unknown notification type: ${type}`);
+        }
+
+        return { ok: true };
+      } catch (error) {
+        console.error(`[Notification Queue] Job ${job.id} failed:`, error);
+        throw error;
+      }
+    },
+    {
+      connection,
+      concurrency: 10, // Process 10 notifications concurrently
+      limiter: {
+        max: 100, // Max 100 jobs
+        duration: 1000, // Per second
+      },
+    }
+  );
+
+  // Event handlers
+  notificationWorker.on('completed', (job) => {
+    console.log(`[Notification Queue] Job ${job.id} completed`);
+  });
+
+  notificationWorker.on('failed', (job, err) => {
+    console.error(`[Notification Queue] Job ${job.id} failed:`, err.message);
+  });
+
+  notificationWorker.on('error', (err) => {
+    console.error('[Notification Queue] Worker error:', err);
+  });
+
+  return notificationWorker;
+}
 
 /**
  * Process email notification
@@ -130,7 +170,8 @@ export async function queueEmailNotification({
   text,
   options = {},
 }) {
-  return notificationQueue.add(
+  const q = getNotificationQueue();
+  return q.add(
     'email',
     {
       type: 'email',
@@ -160,7 +201,8 @@ export async function queueEmailNotification({
  * @returns {Promise<Job>} BullMQ job
  */
 export async function queueSMSNotification({ to, message, options = {} }) {
-  return notificationQueue.add(
+  const q = getNotificationQueue();
+  return q.add(
     'sms',
     {
       type: 'sms',
@@ -181,8 +223,13 @@ export async function queueSMSNotification({ to, message, options = {} }) {
  * Close queues gracefully
  */
 export async function closeNotificationQueues() {
-  await notificationWorker.close();
-  await notificationQueue.close();
+  if (notificationWorker) {
+    await notificationWorker.close();
+  }
+  if (notificationQueue) {
+    await notificationQueue.close();
+    notificationQueue = null;
+  }
 }
 
 

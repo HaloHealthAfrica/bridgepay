@@ -3,69 +3,108 @@
  * Handles async webhook processing with retries
  */
 
-import { Queue, Worker } from 'bullmq';
-import Redis from 'ioredis';
+import { createRequire } from 'node:module';
 
 import { connection } from './redis.js';
 
-// Webhook queue
-export const webhookQueue = new Queue('webhooks', {
-  connection,
-  defaultJobOptions: {
-    attempts: 5, // More attempts for webhooks
-    backoff: {
-      type: 'exponential',
-      delay: 3000,
-    },
-    removeOnComplete: {
-      age: 24 * 3600, // Keep completed jobs for 24 hours
-      count: 500,
-    },
-    removeOnFail: {
-      age: 7 * 24 * 3600, // Keep failed jobs for 7 days
-    },
-  },
-});
+// BullMQ is CommonJS; load via require to avoid ESM/CJS interop issues in SSR builds.
+const require = createRequire(import.meta.url);
+const { Queue, Worker } = require('bullmq');
 
-// Webhook worker
-export const webhookWorker = new Worker(
-  'webhooks',
-  async (job) => {
-    const { webhookType, payload, endpoint } = job.data;
+const shouldStartWorkers =
+  process.env.ENABLE_QUEUE_WORKERS === 'true' &&
+  process.env.VERCEL !== '1' &&
+  process.env.NODE_ENV !== 'test';
 
-    console.log(`[Webhook Queue] Processing job ${job.id} for ${webhookType}`);
+// IMPORTANT: Do not create queues at module import-time.
+export let webhookQueue = null;
 
-    try {
-      // Import here to avoid circular dependencies
-      const sql = await import('../../web/src/app/api/utils/sql.js').then(m => m.default);
-
-      // Process webhook based on type
-      switch (webhookType) {
-        case 'wallet':
-          await processWalletWebhook(payload, sql);
-          break;
-        case 'lemonade':
-          await processLemonadeWebhook(payload, sql);
-          break;
-        default:
-          console.warn(`[Webhook Queue] Unknown webhook type: ${webhookType}`);
-      }
-
-      return { ok: true };
-    } catch (error) {
-      console.error(`[Webhook Queue] Job ${job.id} failed:`, error);
-      throw error;
-    }
-  },
-  {
-    connection,
-    concurrency: 20, // Process 20 webhooks concurrently
-    limiter: {
-      max: 200, // Max 200 jobs
-      duration: 1000, // Per second
-    },
+export function getWebhookQueue() {
+  if (!webhookQueue) {
+    webhookQueue = new Queue('webhooks', {
+      connection,
+      defaultJobOptions: {
+        attempts: 5, // More attempts for webhooks
+        backoff: {
+          type: 'exponential',
+          delay: 3000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600, // Keep completed jobs for 24 hours
+          count: 500,
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+        },
+      },
+    });
   }
-);
+  return webhookQueue;
+}
+
+// IMPORTANT: Workers should NOT run inside serverless (Vercel) functions or during build/prerender.
+// They should run in a dedicated process/container/cron worker.
+let webhookWorker = null;
+export { webhookWorker };
+
+export function startWebhookWorker() {
+  if (!shouldStartWorkers) return null;
+  if (webhookWorker) return webhookWorker;
+
+  webhookWorker = new Worker(
+    'webhooks',
+    async (job) => {
+      const { webhookType, payload, endpoint } = job.data;
+
+      console.log(`[Webhook Queue] Processing job ${job.id} for ${webhookType}`);
+
+      try {
+        // Import here to avoid circular dependencies
+        const sql = await import('../../web/src/app/api/utils/sql.js').then(m => m.default);
+
+        // Process webhook based on type
+        switch (webhookType) {
+          case 'wallet':
+            await processWalletWebhook(payload, sql);
+            break;
+          case 'lemonade':
+            await processLemonadeWebhook(payload, sql);
+            break;
+          default:
+            console.warn(`[Webhook Queue] Unknown webhook type: ${webhookType}`);
+        }
+
+        return { ok: true };
+      } catch (error) {
+        console.error(`[Webhook Queue] Job ${job.id} failed:`, error);
+        throw error;
+      }
+    },
+    {
+      connection,
+      concurrency: 20, // Process 20 webhooks concurrently
+      limiter: {
+        max: 200, // Max 200 jobs
+        duration: 1000, // Per second
+      },
+    }
+  );
+
+  // Event handlers
+  webhookWorker.on('completed', (job) => {
+    console.log(`[Webhook Queue] Job ${job.id} completed`);
+  });
+
+  webhookWorker.on('failed', (job, err) => {
+    console.error(`[Webhook Queue] Job ${job.id} failed:`, err.message);
+  });
+
+  webhookWorker.on('error', (err) => {
+    console.error('[Webhook Queue] Worker error:', err);
+  });
+
+  return webhookWorker;
+}
 
 /**
  * Process wallet webhook
@@ -125,17 +164,7 @@ async function processLemonadeWebhook(payload, sql) {
 }
 
 // Event handlers
-webhookWorker.on('completed', (job) => {
-  console.log(`[Webhook Queue] Job ${job.id} completed`);
-});
-
-webhookWorker.on('failed', (job, err) => {
-  console.error(`[Webhook Queue] Job ${job.id} failed:`, err.message);
-});
-
-webhookWorker.on('error', (err) => {
-  console.error('[Webhook Queue] Worker error:', err);
-});
+// NOTE: Worker event handlers are registered inside `startWebhookWorker()`.
 
 /**
  * Add webhook to queue
@@ -143,7 +172,8 @@ webhookWorker.on('error', (err) => {
 export async function queueWebhook(webhookType, payload, options = {}) {
   const { priority = 0, delay = 0 } = options;
 
-  const job = await webhookQueue.add(
+  const q = getWebhookQueue();
+  const job = await q.add(
     'process-webhook',
     {
       webhookType,
@@ -164,12 +194,16 @@ export async function queueWebhook(webhookType, payload, options = {}) {
  * Get queue status
  */
 export async function getQueueStatus() {
+  if (!process.env.REDIS_URL) {
+    return { error: 'redis_not_configured' };
+  }
+  const q = getWebhookQueue();
   const [waiting, active, completed, failed, delayed] = await Promise.all([
-    webhookQueue.getWaitingCount(),
-    webhookQueue.getActiveCount(),
-    webhookQueue.getCompletedCount(),
-    webhookQueue.getFailedCount(),
-    webhookQueue.getDelayedCount(),
+    q.getWaitingCount(),
+    q.getActiveCount(),
+    q.getCompletedCount(),
+    q.getFailedCount(),
+    q.getDelayedCount(),
   ]);
 
   return {
@@ -186,8 +220,13 @@ export async function getQueueStatus() {
  * Clean up on shutdown
  */
 export async function closeQueues() {
-  await webhookWorker.close();
-  await webhookQueue.close();
+  if (webhookWorker) {
+    await webhookWorker.close();
+  }
+  if (webhookQueue) {
+    await webhookQueue.close();
+    webhookQueue = null;
+  }
   // Don't close connection if shared with payment queue
 }
 

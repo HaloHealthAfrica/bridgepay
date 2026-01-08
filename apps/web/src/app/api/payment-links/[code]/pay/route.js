@@ -65,11 +65,16 @@ export const POST = withErrorHandling(async (request, { params: { code } }) => {
   }
 
   // Import payment intent creation (dynamically to avoid circular dependencies)
-  const { createPaymentIntent } = await import("@/app/api/payments/intent/_helpers");
+  const { createPaymentIntent } = await import("@/app/api/payments/intent/_helpers.js");
 
   // Create payment intent
   try {
     const paymentIntent = await createPaymentIntent({
+      // NOTE: Payment intents require a `user_id`. For public payment links we
+      // currently attach the link owner as the user. If you want true "guest"
+      // payments, you'll need a guest-user model or a nullable `user_id`.
+      userId: linkData.user_id,
+      merchantId: linkData.user_id,
       amount: Number(linkData.amount),
       currency: linkData.currency,
       description: linkData.description || `Payment for link ${code}`,
