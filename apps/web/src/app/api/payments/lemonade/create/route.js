@@ -9,6 +9,20 @@ import { validateCreateInput } from "@/app/api/utils/validate";
 import { findIdempotent, saveIdempotent } from "@/app/api/utils/idempotency";
 // NEW: unified mapping/validation (acc_no-based)
 import { mapToLemonadePayload, validateLemonadePayload } from "../_mapping";
+import { 
+  logSecurityEvent, 
+  SECURITY_EVENTS, 
+  THREAT_LEVELS 
+} from "@/app/api/utils/securityMonitor";
+import { 
+  rateLimitMiddleware, 
+  RATE_LIMITS, 
+  generateUserKey 
+} from "@/app/api/utils/rateLimiter";
+import { 
+  validateUserId,
+  validatePaymentAmount 
+} from "@/app/api/utils/validators";
 
 function isPrivileged(role) {
   return role === "admin" || role === "merchant";
@@ -71,6 +85,11 @@ export async function POST(request) {
     route: "/api/payments/lemonade/create",
   });
   const startedAt = Date.now();
+  const ip = request.headers.get('x-forwarded-for') || 
+            request.headers.get('x-real-ip') || 
+            'unknown';
+  const userAgent = request.headers.get('user-agent') || 'unknown';
+
   try {
     // Rate limits: payments
     const rl = checkRateLimits({
@@ -84,6 +103,13 @@ export async function POST(request) {
       ],
     });
     if (!rl.allowed) {
+      await logSecurityEvent(SECURITY_EVENTS.RATE_LIMIT_EXCEEDED, {
+        ip,
+        userAgent,
+        endpoint: '/api/payments/lemonade/create',
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { reason: 'legacy_rate_limit' }
+      });
       reqMeta.log("rate_limited");
       const headers = {
         ...reqMeta.header(),
@@ -102,6 +128,13 @@ export async function POST(request) {
 
     const session = await auth();
     if (!session?.user?.id) {
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        ip,
+        userAgent,
+        endpoint: '/api/payments/lemonade/create',
+        threatLevel: THREAT_LEVELS.HIGH,
+        metadata: { reason: 'missing_authentication' }
+      });
       const headers = reqMeta.header();
       recordMetric({
         route: "payments.create",
@@ -111,6 +144,29 @@ export async function POST(request) {
       return Response.json(
         { ok: false, error: "unauthorized" },
         { status: 401, headers },
+      );
+    }
+
+    // Validate user ID
+    const userIdValidation = validateUserId(session.user.id);
+    if (!userIdValidation.valid) {
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: '/api/payments/lemonade/create',
+        threatLevel: THREAT_LEVELS.HIGH,
+        metadata: { reason: 'invalid_user_id', error: userIdValidation.error }
+      });
+      const headers = reqMeta.header();
+      recordMetric({
+        route: "payments.create",
+        durationMs: Date.now() - startedAt,
+        error: true,
+      });
+      return Response.json(
+        { ok: false, error: "invalid_user_id" },
+        { status: 400, headers },
       );
     }
 
@@ -125,6 +181,14 @@ export async function POST(request) {
     }
 
     if (!isPrivileged(role)) {
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: '/api/payments/lemonade/create',
+        threatLevel: THREAT_LEVELS.HIGH,
+        metadata: { reason: 'insufficient_privileges', role }
+      });
       const headers = reqMeta.header();
       recordMetric({
         route: "payments.create",
@@ -140,7 +204,16 @@ export async function POST(request) {
     let body = null;
     try {
       body = await request.json();
-    } catch {}
+    } catch {
+      await logSecurityEvent(SECURITY_EVENTS.SUSPICIOUS_LOGIN, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: '/api/payments/lemonade/create',
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { reason: 'malformed_json' }
+      });
+    }
 
     // Validation (basic shape)
     const valErrors = validateCreateInput(body || {});
@@ -191,6 +264,48 @@ export async function POST(request) {
     let order_reference =
       rawPayload?.order_reference || lemonPayload?.reference;
     if (!order_reference) order_reference = "ref-" + Date.now();
+
+    // Validate payment amount
+    if (amountNum > 0) {
+      const amountValidation = validatePaymentAmount(amountNum);
+      if (!amountValidation.valid) {
+        await logSecurityEvent(SECURITY_EVENTS.SUSPICIOUS_LOGIN, {
+          userId: session.user.id,
+          ip,
+          userAgent,
+          endpoint: '/api/payments/lemonade/create',
+          threatLevel: THREAT_LEVELS.MEDIUM,
+          metadata: { reason: 'invalid_amount', amount: amountNum, error: amountValidation.error }
+        });
+        const headers = reqMeta.header();
+        recordMetric({
+          route: "payments.create",
+          durationMs: Date.now() - startedAt,
+          error: true,
+        });
+        return Response.json(
+          { ok: false, error: amountValidation.error },
+          { status: 400, headers },
+        );
+      }
+
+      // Log large payment attempts
+      if (amountNum >= 100000) { // 100K KES threshold
+        await logSecurityEvent(SECURITY_EVENTS.LARGE_TRANSACTION, {
+          userId: session.user.id,
+          ip,
+          userAgent,
+          endpoint: '/api/payments/lemonade/create',
+          threatLevel: THREAT_LEVELS.LOW,
+          metadata: { 
+            operation: 'lemonade_payment_create',
+            amount: amountNum,
+            action,
+            order_reference
+          }
+        });
+      }
+    }
 
     // Idempotency pre-check
     const idemKey = order_reference;
@@ -301,6 +416,24 @@ export async function POST(request) {
         action: "payments.create",
         metadata: { correlationId: reqMeta.id, paymentId, mode: res.mode },
       });
+      
+      // Log successful payment creation
+      await logSecurityEvent(SECURITY_EVENTS.SENSITIVE_DATA_ACCESS, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: '/api/payments/lemonade/create',
+        threatLevel: THREAT_LEVELS.LOW,
+        metadata: { 
+          operation: 'payment_create_success',
+          paymentId,
+          amount: amountNum,
+          action,
+          mode: res.mode,
+          order_reference
+        }
+      });
+
       const headers = reqMeta.header();
       recordMetric({
         route: "payments.create",
@@ -329,6 +462,25 @@ export async function POST(request) {
           mode: res.mode,
         },
       });
+      
+      // Log failed payment creation
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        userId: session.user.id,
+        ip,
+        userAgent,
+        endpoint: '/api/payments/lemonade/create',
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { 
+          operation: 'payment_create_failed',
+          paymentId,
+          amount: amountNum,
+          action,
+          mode: res.mode,
+          order_reference,
+          error: res.data
+        }
+      });
+
       const headers = reqMeta.header();
       recordMetric({
         route: "payments.create",
@@ -338,6 +490,18 @@ export async function POST(request) {
       return Response.json(response, { status: res.status || 400, headers });
     }
   } catch (e) {
+    await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+      userId: session?.user?.id,
+      ip,
+      userAgent,
+      endpoint: '/api/payments/lemonade/create',
+      threatLevel: THREAT_LEVELS.HIGH,
+      metadata: { 
+        error: e.message,
+        reason: 'server_error'
+      }
+    });
+
     const headers = reqMeta.header();
     await writeAudit({
       userId: null,

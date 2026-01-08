@@ -13,17 +13,24 @@ import {
 import * as yup from "yup";
 import { CommonSchemas } from "@/app/api/middleware/validate";
 import { normalizeCurrency } from "@/app/api/utils/currencies";
+import { 
+  logSecurityEvent, 
+  SECURITY_EVENTS, 
+  THREAT_LEVELS 
+} from "@/app/api/utils/securityMonitor";
+import { validateUserId } from "@/app/api/utils/validators";
+
+import { randomBytes } from 'crypto';
 
 function isMerchant(role) {
   return role === "admin" || role === "merchant";
 }
 
-function shortId() {
-  // short, URL-safe id
-  return (
-    Math.random().toString(36).slice(2, 10) +
-    Math.random().toString(36).slice(2, 6)
-  );
+function generateSecureQRCode() {
+  // Use cryptographically secure random generation
+  // Generate 16 random bytes and encode as base64url (URL-safe)
+  const randomBuffer = randomBytes(16);
+  return randomBuffer.toString('base64url');
 }
 
 const generateQRSchema = yup.object({
@@ -42,6 +49,11 @@ const generateQRSchema = yup.object({
 export const POST = withErrorHandling(async (request) => {
   const reqMeta = startRequest({ request, route: "/api/qr/generate" });
   const startedAt = Date.now();
+  const ip = request.headers.get('x-forwarded-for') || 
+            request.headers.get('x-real-ip') || 
+            'unknown';
+  const userAgent = request.headers.get('user-agent') || 'unknown';
+
   const session = await auth();
   let role = session?.user?.role || null;
   if (!role && session?.user?.id) {
@@ -51,7 +63,21 @@ export const POST = withErrorHandling(async (request) => {
       role = r?.[0]?.role || null;
     } catch {}
   }
+  
   if (!session?.user?.id || !isMerchant(role)) {
+    await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+      userId: session?.user?.id,
+      ip,
+      userAgent,
+      endpoint: '/api/qr/generate',
+      threatLevel: THREAT_LEVELS.HIGH,
+      metadata: { 
+        reason: 'insufficient_privileges',
+        requiredRole: 'merchant',
+        userRole: role
+      }
+    });
+
     recordMetric({
       route: "qr.generate",
       durationMs: Date.now() - startedAt,
@@ -61,6 +87,20 @@ export const POST = withErrorHandling(async (request) => {
       message: "Merchant or admin access required",
       headers: reqMeta.header(),
     });
+  }
+
+  // Validate user ID
+  const userIdValidation = validateUserId(session.user.id);
+  if (!userIdValidation.valid) {
+    await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+      userId: session.user.id,
+      ip,
+      userAgent,
+      endpoint: '/api/qr/generate',
+      threatLevel: THREAT_LEVELS.HIGH,
+      metadata: { reason: 'invalid_user_id', error: userIdValidation.error }
+    });
+    return errorResponse(ErrorCodes.VALIDATION_ERROR, { message: userIdValidation.error });
   }
 
   const rl = checkRateLimits({
@@ -92,6 +132,14 @@ export const POST = withErrorHandling(async (request) => {
   try {
     body = await request.json();
   } catch {
+    await logSecurityEvent(SECURITY_EVENTS.SUSPICIOUS_LOGIN, {
+      userId: session.user.id,
+      ip,
+      userAgent,
+      endpoint: '/api/qr/generate',
+      threatLevel: THREAT_LEVELS.MEDIUM,
+      metadata: { reason: 'malformed_json' }
+    });
     return errorResponse(ErrorCodes.INVALID_JSON, {
       message: "Invalid JSON in request body",
       headers: reqMeta.header(),
@@ -130,13 +178,28 @@ export const POST = withErrorHandling(async (request) => {
     throw validationError;
   }
 
-  const code = shortId();
+  const code = generateSecureQRCode();
   const now = new Date();
   const expires_at = validated.expiresIn
     ? new Date(Date.now() + validated.expiresIn * 1000)
     : null;
   const currency = normalizeCurrency(validated.currency);
   const metadata = validated.metadata || {};
+
+  // Log QR code generation for security monitoring
+  await logSecurityEvent(SECURITY_EVENTS.SENSITIVE_DATA_ACCESS, {
+    userId: session.user.id,
+    ip,
+    userAgent,
+    endpoint: '/api/qr/generate',
+    threatLevel: THREAT_LEVELS.LOW,
+    metadata: { 
+      operation: 'qr_generate',
+      mode: validated.mode,
+      amount: validated.amount,
+      currency
+    }
+  });
 
   await sql`
     INSERT INTO qr_codes (

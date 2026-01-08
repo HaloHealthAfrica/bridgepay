@@ -65,28 +65,52 @@ export async function POST(request) {
       );
     }
 
-    const qr = await getQr(code);
-    if (!qr) {
+    // CRITICAL FIX: Atomic QR code redemption to prevent double-use
+    // Lock and update QR code status atomically
+    const qrUpdate = await sql`
+      UPDATE qr_codes 
+      SET status = 'used', updated_at = NOW() 
+      WHERE code = ${code} AND status = 'active'
+      RETURNING id, amount, currency, mode, expires_at, metadata
+    `;
+    
+    if (!qrUpdate || !qrUpdate[0]) {
+      // QR code was already used, expired, or doesn't exist
+      const currentQr = await getQr(code);
+      if (!currentQr) {
+        return Response.json(
+          { ok: false, error: "not_found" },
+          { status: 404, headers: reqMeta.header() },
+        );
+      }
+      
+      if (currentQr.status === "used") {
+        return Response.json(
+          { ok: false, error: "already_used", status: currentQr.status },
+          { status: 400, headers: reqMeta.header() },
+        );
+      }
+      
+      if (currentQr.expires_at && new Date(currentQr.expires_at) < new Date()) {
+        return Response.json(
+          { ok: false, error: "expired" },
+          { status: 400, headers: reqMeta.header() },
+        );
+      }
+      
       return Response.json(
-        { ok: false, error: "not_found" },
-        { status: 404, headers: reqMeta.header() },
-      );
-    }
-
-    if (qr.status !== "active") {
-      return Response.json(
-        { ok: false, error: "invalid_state", status: qr.status },
+        { ok: false, error: "invalid_state", status: currentQr.status },
         { status: 400, headers: reqMeta.header() },
       );
     }
-    if (qr.expires_at && new Date(qr.expires_at) < new Date()) {
-      await sql`UPDATE qr_codes SET status = 'expired', updated_at = NOW() WHERE code = ${code}`;
-      return Response.json(
-        { ok: false, error: "expired" },
-        { status: 400, headers: reqMeta.header() },
-      );
-    }
+    
+    // Use the atomically updated QR data
+    const qr = qrUpdate[0];
+    
+    // Validate QR mode after atomic update
     if (qr.mode !== "pay") {
+      // Revert QR status since mode is invalid
+      await sql`UPDATE qr_codes SET status = 'active', updated_at = NOW() WHERE code = ${code}`;
       return Response.json(
         { ok: false, error: "invalid_mode" },
         { status: 400, headers: reqMeta.header() },
@@ -155,13 +179,16 @@ export async function POST(request) {
     } catch {}
 
     if (!res.ok) {
+      // Payment creation failed - revert QR code status to allow retry
+      await sql`UPDATE qr_codes SET status = 'active', updated_at = NOW() WHERE code = ${code}`;
+      
       // record attempt
       try {
         await sql(
           "UPDATE qr_codes SET metadata = COALESCE(metadata,'{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE code = $2",
           [
             JSON.stringify({
-              last_attempt: {
+              last_failed_attempt: {
                 at: new Date().toISOString(),
                 method,
                 error: data || text || null,

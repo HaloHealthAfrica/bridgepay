@@ -1,5 +1,15 @@
 import sql from "@/app/api/utils/sql";
 import { applyFees } from "@/app/api/billing/_helpers"; // NEW: billing engine
+import { 
+  logSecurityEvent, 
+  SECURITY_EVENTS, 
+  THREAT_LEVELS 
+} from "@/app/api/utils/securityMonitor";
+import { 
+  rateLimitMiddleware, 
+  RATE_LIMITS, 
+  generateIPKey 
+} from "@/app/api/utils/rateLimiter";
 
 function ok() {
   return new Response(null, { status: 204 });
@@ -18,16 +28,57 @@ function verify(req, headers) {
 }
 
 export async function POST(request) {
+  const ip = request.headers.get('x-forwarded-for') || 
+            request.headers.get('x-real-ip') || 
+            'unknown';
+  const userAgent = request.headers.get('user-agent') || 'unknown';
+
   try {
+    // Rate limiting for webhook endpoint
+    const rateLimitKey = generateIPKey(request, 'webhook');
+    const rateLimit = await rateLimitMiddleware(RATE_LIMITS.API_GENERAL)(request, {});
+    
+    if (rateLimit.blocked) {
+      await logSecurityEvent(SECURITY_EVENTS.RATE_LIMIT_EXCEEDED, {
+        ip,
+        userAgent,
+        endpoint: '/api/wallet/webhook',
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { rateLimitKey }
+      });
+      return rateLimit.response;
+    }
+
     const headers = request.headers;
     const bodyText = await request.text();
     let body = null;
     try {
       body = bodyText ? JSON.parse(bodyText) : null;
-    } catch {}
+    } catch {
+      // Log malformed JSON attempts
+      await logSecurityEvent(SECURITY_EVENTS.SUSPICIOUS_LOGIN, {
+        ip,
+        userAgent,
+        endpoint: '/api/wallet/webhook',
+        threatLevel: THREAT_LEVELS.MEDIUM,
+        metadata: { reason: 'malformed_json', bodyText: bodyText?.slice(0, 100) }
+      });
+    }
 
     const valid = verify(request, headers);
     if (!valid) {
+      // Log unauthorized webhook attempts
+      await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+        ip,
+        userAgent,
+        endpoint: '/api/wallet/webhook',
+        threatLevel: THREAT_LEVELS.HIGH,
+        metadata: { 
+          reason: 'invalid_webhook_auth',
+          headers: Object.fromEntries(headers.entries())
+        }
+      });
+
       await sql(
         "INSERT INTO wallet_webhook_events (event_type, payload) VALUES ($1, $2::jsonb)",
         [
@@ -35,6 +86,8 @@ export async function POST(request) {
           JSON.stringify({
             body: body || bodyText || null,
             headers: Object.fromEntries(headers.entries()),
+            ip,
+            userAgent
           }),
         ],
       );
@@ -66,6 +119,19 @@ export async function POST(request) {
       "cancelled",
     ].includes(statusRaw);
 
+    // Log successful webhook processing
+    await logSecurityEvent(SECURITY_EVENTS.SENSITIVE_DATA_ACCESS, {
+      ip,
+      userAgent,
+      endpoint: '/api/wallet/webhook',
+      threatLevel: THREAT_LEVELS.LOW,
+      metadata: { 
+        eventType: succeeded ? "payment_succeeded" : failed ? "payment_failed" : "payment_update",
+        provider_tx_id,
+        order_reference
+      }
+    });
+
     await sql(
       "INSERT INTO wallet_webhook_events (event_type, related_order_reference, related_provider_tx_id, payload) VALUES ($1,$2,$3,$4::jsonb)",
       [
@@ -76,7 +142,7 @@ export async function POST(request) {
             : "payment_update",
         order_reference,
         provider_tx_id,
-        JSON.stringify(body || {}),
+        JSON.stringify({ ...body || {}, ip, userAgent }),
       ],
     );
 
@@ -189,6 +255,18 @@ export async function POST(request) {
 
     return ok();
   } catch (e) {
+    // Log webhook processing errors
+    await logSecurityEvent(SECURITY_EVENTS.UNAUTHORIZED_ACCESS, {
+      ip,
+      userAgent,
+      endpoint: '/api/wallet/webhook',
+      threatLevel: THREAT_LEVELS.HIGH,
+      metadata: { 
+        error: e.message,
+        reason: 'webhook_processing_error'
+      }
+    });
+
     console.error("/api/wallet/webhook error", e);
     return new Response("server_error", { status: 500 });
   }
